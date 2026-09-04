@@ -3,17 +3,28 @@
 import type { Point } from "@/types/drawing";
 import type { Tool, WhiteboardItem } from "@/types/whiteboard";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
-import { classifyItem, drawSprite, intersectsBox, type Sprite, buildRibbonPath, INK } from "@/lib/drawing/renderer";
+import { classifyItem, drawSprite, intersectsBox, type Sprite, buildRibbonPath, INK, colorFor } from "@/lib/drawing/renderer";
 import { dedupe, pathLength, resample, revealCut } from "@/lib/drawing/smoothing";
 import { pxPerSecond, speedMultiplier, interStrokeDelayMs, easeInOut } from "@/lib/drawing/animation";
 import { screenToWorld as screenToWorldPoint, visibleWorldRect } from "@/lib/drawing/coordinates";
 import type { PlannedStep } from "@/lib/drawing/commands";
-import { uid } from "@/lib/drawing/commands";
+import { uid, shapeFromDrag, type ShapeKind } from "@/lib/drawing/commands";
 
 const GRID_BASE = 48;
 
 /** Module-level handle so UI widgets can drive the mounted engine. */
 export const liveEngine: { current: DrawingEngine | null } = { current: null };
+
+const SHAPE_TOOLS = new Set<Tool>(["rect", "ellipse", "line", "arrow", "triangle"]);
+
+/** Prefer the macOS "Samantha" voice for narrations, falling back to the browser default. */
+function pickNarrationVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  return voices.find((v) => /^en/i.test(v.lang) && /samantha/i.test(v.name)) ?? null;
+}
+
+function shapeKindForTool(tool: Tool): ShapeKind | null {
+  return (SHAPE_TOOLS.has(tool) ? (tool as ShapeKind) : null);
+}
 
 interface AnimCursor {
   step: PlannedStep;
@@ -39,13 +50,99 @@ export class DrawingEngine {
   private queue: PlannedStep[] = [];
   private current: AnimCursor | null = null;
   private idle = 0;
+  private speechActive = false;
+  private waitForSpeech = false;
+  private speechTimeout: number | null = null;
 
   private pointerStroke: { item: WhiteboardItem; pts: Point[]; pressures: number[] } | null = null;
+  private shapeDraft: { tool: ShapeKind; anchor: Point; current: Point } | null = null;
 
   private spriteCache = new Map<string, Sprite>();
   private animating = false;
 
   onState?: (state: EngineState) => void;
+
+  /**
+   * Start the narration speech for the current step in parallel with its
+   * drawing. The step only advances once BOTH the drawing and the speech have
+   * finished (tracked via {@link speechActive} / {@link waitForSpeech}).
+   */
+  private speakText(text: string): void {
+    this.speechActive = false;
+    if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    this.speechActive = true;
+    // Safety net: if the utterance never fires its onend/onerror callbacks the
+    // engine would stall forever, so release after a generous timeout.
+    this.speechTimeout = window.setTimeout(() => this.onSpeechDone(), 15000);
+
+    const start = (): void => {
+      if (this.speechTimeout === null) return; // cancelled in the meantime
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voice = pickNarrationVoice(window.speechSynthesis.getVoices());
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => this.onSpeechDone();
+      utterance.onerror = () => this.onSpeechDone();
+      window.speechSynthesis.speak(utterance);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      // Voices populate asynchronously after page load; wait for them so even
+      // the very first narration can use Samantha.
+      window.speechSynthesis.addEventListener("voiceschanged", start, { once: true });
+      // Fallback: if voices never populate, speak with the default voice anyway.
+      window.setTimeout(() => {
+        if (this.speechTimeout !== null && window.speechSynthesis.getVoices().length === 0) start();
+      }, 400);
+    } else {
+      start();
+    }
+  }
+
+  /** Called when the current narration finishes speaking. */
+  private onSpeechDone(): void {
+    if (this.speechTimeout !== null) {
+      clearTimeout(this.speechTimeout);
+      this.speechTimeout = null;
+    }
+    this.speechActive = false;
+    if (this.waitForSpeech) {
+      this.waitForSpeech = false;
+      // Resume the idle clock so the next step starts.
+      this.idle = Math.max(16, this.idle);
+    }
+  }
+
+  /** Begin drawing (or pausing) a step immediately. */
+  private resumeStep(step: PlannedStep): void {
+    if (step.kind === "pause") {
+      this.idle = step.duration ?? 400;
+      return;
+    }
+    const item = step.item!;
+    let total: number;
+    let textChars = 0;
+    if (item.kind === "text") {
+      textChars = item.text.length;
+      total = item.text.length;
+    } else {
+      total = Math.max(1, pathLength(item.points));
+    }
+    this.current = { step, revealed: 0, total, textChars };
+    this.setAnimating(true);
+  }
+
+  private cancelSpeech(): void {
+    this.speechActive = false;
+    this.waitForSpeech = false;
+    if (this.speechTimeout !== null) {
+      clearTimeout(this.speechTimeout);
+      this.speechTimeout = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -67,7 +164,9 @@ export class DrawingEngine {
     this.queue = [];
     this.current = null;
     this.pointerStroke = null;
+    this.shapeDraft = null;
     this.spriteCache.clear();
+    this.cancelSpeech();
     if (liveEngine.current === this) liveEngine.current = null;
   }
 
@@ -103,6 +202,7 @@ export class DrawingEngine {
     this.queue = [];
     this.current = null;
     this.setAnimating(false);
+    this.cancelSpeech();
     this.needsRender = true;
   }
 
@@ -177,6 +277,40 @@ export class DrawingEngine {
     this.needsRender = true;
   }
 
+  // ── Manual shapes (toolbar drag) ────────────────────────────────────
+
+  startShape(world: Point, tool: Tool): void {
+    if (this.pointerStroke) this.endStroke();
+    const kind = shapeKindForTool(tool);
+    if (!kind) return;
+    this.shapeDraft = { tool: kind, anchor: world, current: world };
+    this.needsRender = true;
+  }
+
+  moveShape(world: Point): void {
+    if (!this.shapeDraft) return;
+    this.shapeDraft.current = world;
+    this.needsRender = true;
+  }
+
+  endShape(): void {
+    const d = this.shapeDraft;
+    this.shapeDraft = null;
+    if (!d) return;
+    if (Math.hypot(d.current.x - d.anchor.x, d.current.y - d.anchor.y) < 2) {
+      this.needsRender = true;
+      return;
+    }
+    const items = shapeFromDrag(d.tool, d.anchor, d.current, INK);
+    if (items.length) useWhiteboardStore.getState().addItems(items);
+    this.needsRender = true;
+  }
+
+  cancelShape(): void {
+    this.shapeDraft = null;
+    this.needsRender = true;
+  }
+
   // ── Main loop ───────────────────────────────────────────────────────
 
   private tick = (t: number): void => {
@@ -184,7 +318,7 @@ export class DrawingEngine {
     this.raf = requestAnimationFrame(this.tick);
     const dt = Math.min(0.05, (t - this.lastTime) / 1000);
     this.lastTime = t;
-    if (this.current || this.queue.length > 0 || this.idle > 0) {
+    if (this.current || this.queue.length > 0 || this.idle > 0 || this.waitForSpeech) {
       this.advance(dt * 1000);
       this.needsRender = true;
     }
@@ -197,13 +331,27 @@ export class DrawingEngine {
   private advance(ms: number): void {
     const speed = useWhiteboardStore.getState().speed;
 
+    // A completed step's narration is still speaking — hold until it finishes
+    // before starting the next step.
+    if (this.waitForSpeech) {
+      this.setAnimating(true);
+      return;
+    }
+
     if (this.idle > 0) {
       this.idle -= ms;
       if (this.idle <= 0) {
-        if (this.current === null && this.queue.length > 0) {
-          this.startNext();
-        } else if (this.current === null) {
-          this.setAnimating(false);
+        if (this.current === null) {
+          // Wait for the step's narration to finish before advancing, so the
+          // next step starts only once BOTH drawing and speech are complete.
+          if (this.speechActive) {
+            this.waitForSpeech = true;
+            this.setAnimating(true);
+          } else if (this.queue.length > 0) {
+            this.startNext();
+          } else {
+            this.setAnimating(false);
+          }
         }
       }
       return;
@@ -220,11 +368,11 @@ export class DrawingEngine {
 
     const item = cur.step.item;
     if (item.kind === "text") {
-      cur.revealed += 46 * speedMultiplier(speed) * (ms / 1000);
+      cur.revealed += 70 * speedMultiplier(speed) * (ms / 1000);
       if (cur.revealed >= cur.total) {
         this.commitItem(item);
         this.current = null;
-        this.idle = interStrokeDelayMs();
+        this.idle = interStrokeDelayMs(speed);
       }
       return;
     }
@@ -233,7 +381,7 @@ export class DrawingEngine {
     if (cur.revealed >= cur.total) {
       this.commitItem(item);
       this.current = null;
-      this.idle = interStrokeDelayMs();
+      this.idle = interStrokeDelayMs(speed);
     }
   }
 
@@ -243,21 +391,12 @@ export class DrawingEngine {
       this.setAnimating(false);
       return;
     }
-    if (step.kind === "pause") {
-      this.idle = step.duration ?? 400;
-      return;
+    // Speak narration and begin drawing/pausing the step at the same time.
+    this.waitForSpeech = false;
+    if (step.explain) {
+      this.speakText(step.explain);
     }
-    const item = step.item!;
-    let total: number;
-    let textChars = 0;
-    if (item.kind === "text") {
-      textChars = item.text.length;
-      total = item.text.length;
-    } else {
-      total = Math.max(1, pathLength(item.points));
-    }
-    this.current = { step, revealed: 0, total, textChars };
-    this.setAnimating(true);
+    this.resumeStep(step);
   }
 
   private commitItem(item: WhiteboardItem): void {
@@ -293,6 +432,7 @@ export class DrawingEngine {
     }
 
     this.drawPointer(ctx);
+    this.drawShapePreview(ctx);
     this.drawAnimating(ctx);
   }
 
@@ -340,9 +480,31 @@ export class DrawingEngine {
       ctx.arc(ps.pts[0].x, ps.pts[0].y, item.width / 2, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      ctx.fill(buildRibbonPath(ps.pts, item.width, item.kind === "stroke" ? item.pressure : undefined, item.seed), "nonzero");
+      ctx.fill(buildRibbonPath(ps.pts, item.width, item.kind === "stroke" ? item.pressure : undefined), "nonzero");
     }
     ctx.restore();
+  }
+
+  /** Live preview while dragging a shape tool. */
+  private drawShapePreview(ctx: CanvasRenderingContext2D): void {
+    const d = this.shapeDraft;
+    if (!d) return;
+    const items = shapeFromDrag(d.tool, d.anchor, d.current, INK);
+    for (const item of items) {
+      if (item.kind !== "shape") continue;
+      ctx.save();
+      if (item.fill && item.closed && item.points.length > 0) {
+        const fp = new Path2D();
+        fp.moveTo(item.points[0].x, item.points[0].y);
+        for (let i = 1; i < item.points.length; i++) fp.lineTo(item.points[i].x, item.points[i].y);
+        fp.closePath();
+        ctx.fillStyle = item.fill;
+        ctx.fill(fp, "nonzero");
+      }
+      ctx.fillStyle = colorFor(item);
+      ctx.fill(buildRibbonPath(item.points, item.width), "nonzero");
+      ctx.restore();
+    }
   }
 
   private drawAnimating(ctx: CanvasRenderingContext2D): void {
@@ -359,7 +521,7 @@ export class DrawingEngine {
       const n = Math.max(0, Math.min(item.text.length, Math.round(eased * cur.textChars)));
       ctx.font = `${item.fontSize}px "Chalkboard SE", "Segoe Print", "Comic Sans MS", "Marker Felt", cursive, sans-serif`;
       ctx.textBaseline = "alphabetic";
-      ctx.fillStyle = INK;
+      ctx.fillStyle = item.color ?? INK;
       ctx.fillText(item.text.slice(0, n), item.x, item.y);
     } else {
       const length = pathLength(item.points);
@@ -367,11 +529,11 @@ export class DrawingEngine {
       if (item.kind === "erase") {
         ctx.fillStyle = "#000";
       } else {
-        ctx.fillStyle = INK;
+        ctx.fillStyle = item.color ?? INK;
         ctx.globalAlpha = item.opacity ?? 1;
       }
       if (partial.length >= 2) {
-        ctx.fill(buildRibbonPath(partial, item.width, item.kind === "stroke" ? item.pressure : undefined, item.seed), "nonzero");
+        ctx.fill(buildRibbonPath(partial, item.width, item.kind === "stroke" ? item.pressure : undefined), "nonzero");
       }
     }
     ctx.restore();

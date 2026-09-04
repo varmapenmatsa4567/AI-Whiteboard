@@ -2,9 +2,9 @@ import type { DrawingSpeed } from "@/types/whiteboard";
 
 /** World-space px drawn per second for each speed. */
 export const SPEED_PX: Record<DrawingSpeed, number> = {
-  slow: 70,
-  normal: 160,
-  fast: 300,
+  slow: 140,
+  normal: 300,
+  fast: 560,
 };
 
 export function pxPerSecond(speed: DrawingSpeed): number {
@@ -25,13 +25,14 @@ export function strokeDurationMs(points: { x: number; y: number }[], speed: Draw
 }
 
 export function textDurationMs(text: string, speed: DrawingSpeed): number {
-  const charsPerMs = 0.062 * speedMultiplier(speed);
-  return Math.max(180, text.length / Math.max(0.01, charsPerMs));
+  const charsPerMs = 0.11 * speedMultiplier(speed);
+  return Math.max(120, text.length / Math.max(0.01, charsPerMs));
 }
 
-/** Constant idle beat between strokes — feels like a teacher pausing. */
-export function interStrokeDelayMs(): number {
-  return 140 + Math.random() * 120;
+/** Constant idle beat between strokes — feels like a teacher pausing. Scales down on faster speeds. */
+export function interStrokeDelayMs(speed: DrawingSpeed = "normal"): number {
+  const base = 120 + Math.random() * 100;
+  return base / Math.max(1, speedMultiplier(speed));
 }
 
 export function easeInOut(f: number): number {

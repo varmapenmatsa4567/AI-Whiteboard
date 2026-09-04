@@ -2,21 +2,29 @@ import type { DrawingAI, DrawingCommand, DrawingPlan, DrawingRequestContext, Poi
 
 type Pt = [number, number];
 
-const S = (pts: Pt[], width = 4): DrawingCommand => ({
-  type: "stroke",
-  points: pts.map(([x, y]): Point => ({ x, y })),
-  width,
-});
+const S = (pts: Pt[], width = 4, color?: string, explain?: string): DrawingCommand => {
+  const cmd: DrawingCommand = {
+    type: "stroke",
+    points: pts.map(([x, y]): Point => ({ x, y })),
+    width,
+  };
+  if (color) cmd.color = color;
+  if (explain) cmd.explain = explain;
+  return cmd;
+};
 
-const T = (x: number, y: number, text: string, fontSize = 24): DrawingCommand => ({
-  type: "text",
-  x,
-  y,
-  text,
-  fontSize,
-});
+const T = (x: number, y: number, text: string, fontSize = 24, color?: string, explain?: string): DrawingCommand => {
+  const cmd: DrawingCommand = { type: "text", x, y, text, fontSize };
+  if (color) cmd.color = color;
+  if (explain) cmd.explain = explain;
+  return cmd;
+};
 
-const P = (duration = 500): DrawingCommand => ({ type: "pause", duration });
+const P = (duration = 500, explain?: string): DrawingCommand => {
+  const cmd: DrawingCommand = { type: "pause", duration };
+  if (explain) cmd.explain = explain;
+  return cmd;
+};
 
 const G = (...commands: DrawingCommand[]): DrawingCommand => ({ type: "group", commands });
 
@@ -31,29 +39,19 @@ function ellipse(cx: number, cy: number, rx: number, ry: number, segs = 48, rot 
   return out;
 }
 
-const circle = (cx: number, cy: number, r: number, w = 4): DrawingCommand => S(ellipse(cx, cy, r, r, 40), w);
+const circle = (cx: number, cy: number, r: number, sw = 4, color?: string, explain?: string): DrawingCommand =>
+  ({ type: "ellipse", cx, cy, rx: r, ry: r, strokeWidth: sw, color, explain });
 
-function line(a: Pt, b: Pt, w = 4): DrawingCommand {
-  return S([a, b], w);
+function line(a: Pt, b: Pt, sw = 4, color?: string, explain?: string): DrawingCommand {
+  return { type: "line", x1: a[0], y1: a[1], x2: b[0], y2: b[1], strokeWidth: sw, color, explain };
 }
 
-function arrow(a: Pt, b: Pt, w = 4): DrawingCommand[] {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len;
-  const uy = dy / len;
-  const px = -uy;
-  const py = ux;
-  const head = Math.min(26, len * 0.3);
-  const tip: Pt = [b[0], b[1]];
-  const left: Pt = [b[0] - ux * head + px * head * 0.45, b[1] - uy * head + py * head * 0.45];
-  const right: Pt = [b[0] - ux * head - px * head * 0.45, b[1] - uy * head - py * head * 0.45];
-  return [S([a, tip], w), S([tip, left], w), S([tip, right], w)];
+function arrow(a: Pt, b: Pt, sw = 4, color?: string, explain?: string): DrawingCommand {
+  return { type: "arrow", x1: a[0], y1: a[1], x2: b[0], y2: b[1], strokeWidth: sw, color, explain };
 }
 
-function rect(x0: number, y0: number, x1: number, y1: number, w = 4): DrawingCommand {
-  return S([[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], w);
+function rect(x0: number, y0: number, x1: number, y1: number, sw = 4, color?: string, fill?: string, explain?: string): DrawingCommand {
+  return { type: "rect", x: x0, y: y0, width: x1 - x0, height: y1 - y0, strokeWidth: sw, color, fill, explain };
 }
 
 function landscape(text: string): DrawingPlan {
@@ -93,15 +91,15 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
       description: "I'll draw a simple car: body, windows, wheels and a ground line.",
       commands: [
         G(
-          S([[150, 460], [230, 400], [290, 390], [360, 330], [540, 330], [600, 390], [700, 395], [780, 455], [780, 540], [150, 540], [150, 460]], 5),
-          S([[345, 400], [370, 340], [395, 335]]),
-          rect(420, 385, 470, 420, 3),
-          rect(500, 380, 555, 420, 3)
+          S([[150, 460], [230, 400], [290, 390], [360, 330], [540, 330], [600, 390], [700, 395], [780, 455], [780, 540], [150, 540], [150, 460]], 5, undefined, "I'm drawing the body of the car."),
+          S([[345, 400], [370, 340], [395, 335]], undefined, undefined, "Now the roof line."),
+          rect(420, 385, 470, 420, 3, "#38bdf8", undefined, "Here's the front window."),
+          rect(500, 380, 555, 420, 3, "#38bdf8", undefined, "And the rear window.")
         ),
-        P(700),
-        G(circle(280, 560, 58, 5), circle(650, 560, 58, 5)),
+        P(700, "Now let's add the wheels."),
+        G(circle(280, 560, 58, 5, "#e11d48", "The first wheel."), circle(650, 560, 58, 5, "#e11d48", "And the second wheel.")),
         P(400),
-        G(S([[120, 585], [800, 585]], 3), T(350, 640, "Car!", 30)),
+        G(S([[120, 585], [800, 585]], 3, "#16a34a", "Finally, the ground line."), T(350, 640, "Car!", 30, undefined, "And I label it, car.")),
       ],
     }),
   },
@@ -142,11 +140,12 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
               }
               return pts;
             })(),
-            5
+            5,
+            "#e11d48"
           )
         ),
         P(800),
-        G(T(300, 180, "Right", 22), T(660, 180, "Left", 22), T(500, 700, "heart", 26)),
+        G(T(300, 180, "Right", 22, "#0ea5e9"), T(660, 180, "Left", 22, "#f59e0b"), T(500, 700, "heart", 26, "#e11d48")),
       ],
     }),
   },
@@ -232,9 +231,9 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
           ...["2", "4", "5", "7", "11", "13", "17", "23"].map((v, i) => T(137 + i * 100, 500, v, 24))
         ),
         P(700),
-        G(...arrow([160, 440], [160, 590], 4), T(120, 635, "low", 22), ...arrow([770, 440], [770, 590], 4), T(730, 635, "high", 22)),
+        G(arrow([160, 440], [160, 590], 4), T(120, 635, "low", 22), arrow([770, 440], [770, 590], 4), T(730, 635, "high", 22)),
         P(500),
-        G(...arrow([460, 440], [460, 590], 4), T(420, 635, "mid → 7 ✓", 22)),
+        G(arrow([460, 440], [460, 590], 4), T(420, 635, "mid → 7 ✓", 22)),
         P(600),
         G(
           S([[130, 300], [230, 400], [190, 300], [240, 390]], 4),
@@ -260,9 +259,9 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
           })
         ),
         P(600),
-        G(T(505, 630, "5", 26), ...arrow([562, 600], [562, 500], 4), T(520, 455, "swap up", 22)),
+        G(T(505, 630, "5", 26), arrow([562, 600], [562, 500], 4), T(520, 455, "swap up", 22)),
         P(600),
-        G(...arrow([385, 720], [385, 800], 4), T(340, 845, "compare while shifting", 22)),
+        G(arrow([385, 720], [385, 800], 4), T(340, 845, "compare while shifting", 22)),
         T(320, 900, "Unsorted list", 26),
       ],
     }),
@@ -279,7 +278,7 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
           T(705, 260, "Server", 26)
         ),
         P(500),
-        G(T(355, 300, "1.", 26), line([390, 330], [600, 330], 5), T(430, 265, "SYN (seq=x)", 24), ...arrow([430, 380], [430, 330], 3)),
+        G(T(355, 300, "1.", 26), line([390, 330], [600, 330], 5), T(430, 265, "SYN (seq=x)", 24), arrow([430, 380], [430, 330], 3)),
         P(500),
         G(T(355, 430, "2.", 26), line([600, 460], [390, 460], 5), T(400, 500, "SYN-ACK", 24), T(440, 560, "(seq=y, ack=x+1)", 20)),
         P(500),
@@ -293,7 +292,7 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
     build: () => ({
       description: "I'll draw a coordinate plane with a parabola and label it.",
       commands: [
-        G(...arrow([100, 760], [920, 760], 5), ...arrow([120, 780], [120, 80], 5)),
+        G(arrow([100, 760], [920, 760], 5), arrow([120, 780], [120, 80], 5)),
         P(400),
         G(
           S(

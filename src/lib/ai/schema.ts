@@ -7,12 +7,16 @@ const PointSchema = z.object({
   y: z.number().min(-200).max(1200),
 });
 
+const Explain = z.string().max(500).optional();
+
 const StrokeSchema = z.object({
   type: z.literal("stroke"),
   points: z.array(PointSchema).min(2).max(4096),
   width: z.number().min(0.5).max(80).optional(),
   opacity: z.number().min(0).max(1).optional(),
   pressure: z.array(z.number().min(0).max(1)).max(4096).optional(),
+  color: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "color must be a hex color like #e11d48").optional(),
+  explain: Explain,
 });
 
 const TextSchema = z.object({
@@ -21,6 +25,72 @@ const TextSchema = z.object({
   y: z.number().min(-200).max(1200),
   text: z.string().max(500),
   fontSize: z.number().min(6).max(200).optional(),
+  color: z.string().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "color must be a hex color like #e11d48").optional(),
+  explain: Explain,
+});
+
+const HEX = z
+  .string()
+  .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "color must be a hex color like #e11d48")
+  .optional();
+
+const LineSchema = z.object({
+  type: z.literal("line"),
+  x1: z.number().min(-200).max(1200),
+  y1: z.number().min(-200).max(1200),
+  x2: z.number().min(-200).max(1200),
+  y2: z.number().min(-200).max(1200),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  explain: Explain,
+});
+
+const RectSchema = z.object({
+  type: z.literal("rect"),
+  x: z.number().min(-200).max(1200),
+  y: z.number().min(-200).max(1200),
+  width: z.number().min(0.5).max(2000),
+  height: z.number().min(0.5).max(2000),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  fill: HEX,
+  explain: Explain,
+});
+
+const EllipseSchema = z.object({
+  type: z.literal("ellipse"),
+  cx: z.number().min(-200).max(1200),
+  cy: z.number().min(-200).max(1200),
+  rx: z.number().min(0.5).max(2000),
+  ry: z.number().min(0.5).max(2000),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  fill: HEX,
+  explain: Explain,
+});
+
+const TriangleSchema = z.object({
+  type: z.literal("triangle"),
+  x1: z.number().min(-200).max(1200),
+  y1: z.number().min(-200).max(1200),
+  x2: z.number().min(-200).max(1200),
+  y2: z.number().min(-200).max(1200),
+  x3: z.number().min(-200).max(1200),
+  y3: z.number().min(-200).max(1200),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  explain: Explain,
+});
+
+const ArrowSchema = z.object({
+  type: z.literal("arrow"),
+  x1: z.number().min(-200).max(1200),
+  y1: z.number().min(-200).max(1200),
+  x2: z.number().min(-200).max(1200),
+  y2: z.number().min(-200).max(1200),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  explain: Explain,
 });
 
 const EraseSchema = z.object({
@@ -28,21 +98,29 @@ const EraseSchema = z.object({
   x: z.number().min(-200).max(1200),
   y: z.number().min(-200).max(1200),
   width: z.number().min(2).max(300).optional(),
+  explain: Explain,
 });
 
 const PauseSchema = z.object({
   type: z.literal("pause"),
   duration: z.number().min(0).max(20000).optional().default(400),
+  explain: Explain,
 });
 
 const GroupSchema = z.object({
   type: z.literal("group"),
   commands: z.array(z.lazy(() => CommandSchema as z.ZodType<unknown>)).max(200),
+  explain: Explain,
 });
 
 export const CommandSchema: z.ZodType<DrawingCommand> = z.union([
   StrokeSchema,
   TextSchema,
+  LineSchema,
+  RectSchema,
+  EllipseSchema,
+  TriangleSchema,
+  ArrowSchema,
   EraseSchema,
   PauseSchema,
   GroupSchema,
@@ -87,7 +165,7 @@ function normalizeCommand(raw: unknown): unknown {
   }
 
   // Keyed form: exactly one key that is a known command type.
-  const keyTypes = ["stroke", "text", "erase", "pause", "group"];
+  const keyTypes = ["stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "erase", "pause", "group"];
   const keys = Object.keys(obj).filter((k) => keyTypes.includes(k));
   if (keys.length === 1) {
     const key = keys[0];

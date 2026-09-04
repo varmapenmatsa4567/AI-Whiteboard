@@ -25,10 +25,35 @@ export default function DrawingToolbar() {
     { id: "pan" as const, label: "Pan", key: "H", icon: <HandGlyph /> },
   ];
 
+  const shapes = [
+    { id: "rect" as const, label: "Rectangle", key: "R", icon: <RectGlyph /> },
+    { id: "ellipse" as const, label: "Ellipse", key: "O", icon: <EllipseGlyph /> },
+    { id: "line" as const, label: "Line", key: "L", icon: <LineGlyph /> },
+    { id: "arrow" as const, label: "Arrow", key: "A", icon: <ArrowGlyph /> },
+    { id: "triangle" as const, label: "Triangle", key: "T", icon: <TriangleGlyph /> },
+  ];
+
   return (
     <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-slate-50 py-2">
       <div className="flex flex-col gap-1">
         {tools.map((t) => (
+          <button
+            key={t.id}
+            title={`${t.label} (${t.key})`}
+            onClick={() => setTool(t.id)}
+            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+              tool === t.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:bg-slate-200/70 hover:text-slate-800"
+            }`}
+          >
+            {t.icon}
+          </button>
+        ))}
+      </div>
+
+      <div className="my-1 h-px w-6 bg-slate-200" />
+
+      <div className="flex flex-col gap-1">
+        {shapes.map((t) => (
           <button
             key={t.id}
             title={`${t.label} (${t.key})`}
@@ -144,6 +169,42 @@ function TrashGlyph() {
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  );
+}
+function RectGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="5" width="16" height="14" rx="1" />
+    </svg>
+  );
+}
+function EllipseGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="12" rx="8" ry="5.5" />
+    </svg>
+  );
+}
+function LineGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20 20 4" />
+    </svg>
+  );
+}
+function ArrowGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12h14" />
+      <path d="m14 6 6 6-6 6" />
+    </svg>
+  );
+}
+function TriangleGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4 21 19H3z" />
     </svg>
   );
 }

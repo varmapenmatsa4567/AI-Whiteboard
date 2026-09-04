@@ -7,7 +7,7 @@ export type Camera = {
   zoom: number;
 };
 
-export type Tool = "draw" | "erase" | "pan";
+export type Tool = "draw" | "erase" | "pan" | "rect" | "ellipse" | "line" | "arrow" | "triangle";
 
 export type DrawingSpeed = "slow" | "normal" | "fast";
 
@@ -23,6 +23,7 @@ export type WhiteboardItem =
       width: number;
       opacity?: number;
       pressure?: number[];
+      color?: string;
       seed: number;
     }
   | {
@@ -39,6 +40,22 @@ export type WhiteboardItem =
       y: number;
       text: string;
       fontSize: number;
+      color?: string;
+    }
+  | {
+      id: string;
+      kind: "shape";
+      /** Outline polyline of the shape (closed for rect/ellipse/triangle). */
+      points: Point[];
+      /** Marker nib width for the outline. */
+      width: number;
+      /** Whether the outline forms a closed loop (rect/ellipse/triangle). */
+      closed: boolean;
+      /** Optional solid fill color (for rect/ellipse). */
+      fill?: string;
+      opacity?: number;
+      color?: string;
+      seed: number;
     };
 
 export interface ChatMessage {

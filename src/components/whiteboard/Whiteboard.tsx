@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { DrawingEngine, liveEngine } from "./DrawingEngine";
 
-type Modality = "draw" | "pan" | "pinch" | null;
+type Modality = "draw" | "shape" | "pan" | "pinch" | null;
 
 interface PinchState {
   dist: number;
@@ -118,11 +118,15 @@ export default function Whiteboard() {
       modeRef.current = "pan";
       return;
     }
-    if (tool !== "draw" && tool !== "erase") return;
+    const isShape = tool === "rect" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "triangle";
+    if (tool !== "draw" && tool !== "erase" && !isShape) return;
 
-    modeRef.current = "draw";
+    modeRef.current = isShape ? "shape" : "draw";
     const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
-    if (world) engineRef.current?.startStroke(world, tool);
+    if (world) {
+      if (isShape) engineRef.current?.startShape(world, tool);
+      else engineRef.current?.startStroke(world, tool);
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -144,6 +148,9 @@ export default function Whiteboard() {
     if (modeRef.current === "draw") {
       const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
       if (world) engineRef.current?.moveStroke(world, e.pressure && e.pressure > 0 ? e.pressure : 0.5);
+    } else if (modeRef.current === "shape") {
+      const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
+      if (world) engineRef.current?.moveShape(world);
     }
   };
 
@@ -152,6 +159,10 @@ export default function Whiteboard() {
     if (modeRef.current === "draw") {
       if (cancel) engineRef.current?.cancelStroke();
       else engineRef.current?.endStroke();
+      modeRef.current = null;
+    } else if (modeRef.current === "shape") {
+      if (cancel) engineRef.current?.cancelShape();
+      else engineRef.current?.endShape();
       modeRef.current = null;
     } else if (modeRef.current === "pan") {
       modeRef.current = null;
@@ -202,6 +213,11 @@ export default function Whiteboard() {
       if (k === "v" || k === "d") setTool("draw");
       else if (k === "e") setTool("erase");
       else if (k === "h") setTool("pan");
+      else if (k === "r") setTool("rect");
+      else if (k === "o") setTool("ellipse");
+      else if (k === "l") setTool("line");
+      else if (k === "a") setTool("arrow");
+      else if (k === "t") setTool("triangle");
       else if (k === "0") useWhiteboardStore.getState().resetCamera();
       else if (k === "1") useWhiteboardStore.getState().fitDrawing();
       else if (k === "f") useWhiteboardStore.getState().fitDrawing();
@@ -230,7 +246,7 @@ export default function Whiteboard() {
         ref={canvasRef}
         className="absolute inset-0 h-full w-full touch-none select-none"
         style={{
-          cursor: tool === "draw" ? "crosshair" : tool === "erase" ? "crosshair" : "grab",
+          cursor: tool === "pan" ? "grab" : "crosshair",
           transition: "cursor 120ms",
         }}
         onPointerDown={onPointerDown}
