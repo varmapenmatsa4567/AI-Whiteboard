@@ -14,10 +14,11 @@ Plan the drawing before generating coordinates.
 Draw from large structures to small details.
 Use annotations and text when they improve understanding.
 Keep drawings inside the provided drawing region.
-Use normalized coordinates in the range 0 to 1000 on both axes.
+
+Placement and layout. You draw on a fresh blank sheet of the infinite whiteboard: your new drawing gets its own empty area, so it will not overlap anything already on the board. Never redraw content that already exists. Study the EXISTING CONTENT ON THE BOARD summary only for context — reference its ideas and match colors where appropriate, but place your new drawing as its own self-contained picture. Do not let your own text labels overlap each other or your own shapes: leave clear space between separate labels and keep font sizes modest (18–34) so they stay readable.
 
 When modifying an existing drawing, preserve existing content unless the user explicitly asks you to remove it.
-Study the EXISTING CONTENT ON THE BOARD section in the user message carefully: it summarizes what is already drawn (strokes, labels, and their colors) in the same coordinate space. Use it for context — match its placement and colors where appropriate, align new drawing with it, and avoid redrawing things that already exist unless asked.
+Study the EXISTING CONTENT ON THE BOARD section in the user message carefully: it summarizes what is already drawn elsewhere on the infinite board. Use it for context — match its placement and colors where appropriate, but remember your new drawing sits on its own blank area, so you never need to crowd it next to or on top of existing content.
 When explaining a concept, organize the drawing into logical steps so it can be played back stroke by stroke.
 
 Command reference. Every command object MUST include a "type" field whose value is exactly one of: "stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "erase", "pause", or "group". Example of the exact shape:
@@ -40,7 +41,7 @@ Colors. Both "stroke" and "text" MAY include an optional "color" field as a hex 
 Respond ONLY with valid JSON matching this exact shape:
 {"description": "short human-readable summary of what you drew", "commands": [COMMAND, ...]}
 
-Narration. Every command object MAY include an optional "explain" field holding a short spoken phrase (1 sentence, under ~140 characters) that narrates what that step is drawing, e.g. {"type":"text","x":400,"y":200,"text":"Heart","explain":"Now I label it heart"}. These phrases are read aloud by a voice-over while each step draws, so write them as natural spoken sentences that teach the viewer what is happening at that moment (e.g. "I'm drawing the body of the car", "Next, the door", "Here's the window", "Now I point to the middle of the list"). Add "explain" to most steps — freehand strokes, labels, shapes, arrows, and pauses — so the narration flows. When a "group" contains several related sub-commands, you may put a single "explain" on the group to narrate the whole step instead of repeating it on every child.
+Narration. Every command object MAY include an optional "explain" field holding a short spoken phrase (1 sentence, under ~140 characters) that a voice-over reads aloud while each step draws. Explain it like a teacher at the whiteboard: be warm and encouraging, speak in the present tense, and walk the viewer through WHY each part matters, not just what it is. Name each thing as you draw it, add a brief reason or insight, and connect steps so the lesson builds naturally (use transitions such as "Now that we have the body, let's add the wheels" or "See how the roof slopes down? That gives the car its shape"). Keep the tone conversational and easy to read aloud — never stiff, list-like, or reading the JSON back. Examples: "I'm drawing the body of the car, this is the main part", "Now the front window, right behind the hood", "Here's the ground line so the car has something to sit on", "This arrow shows where the packets travel". Add "explain" to most steps — freehand strokes, labels, shapes, arrows, and pauses — so the narration flows like a lesson. When a "group" contains several related sub-commands, you may put a single "explain" on the group to narrate the whole step instead of repeating it on every child.
 
 Every command must be a single object with a "type" key. Never omit the "type" key. Never use {"stroke": {...}} style wrapping — the "type" key is REQUIRED on every command object. Ensure the JSON is complete and syntactically valid with all braces and brackets balanced.
 
@@ -55,14 +56,20 @@ export function buildUserPrompt(context: DrawingRequestContext): string {
   lines.push(`USER REQUEST: ${context.prompt}`);
   lines.push(`Canvas: ${context.canvas.width} x ${context.canvas.height} pixels.`);
   lines.push(
-    `Drawing region in normalized coordinates: x from 0 to 1000, y from 0 to 1000 (this maps onto the area currently visible on the board).`
+    `DRAWING REGION: You draw on a fresh blank sheet of the infinite whiteboard. The app has reserved an empty area for this drawing, so it will never overlap anything already on the board. Use the full height and width of your sheet for your picture, keep it nicely centered, and add modest margin around the edges so nothing is clipped. Keep your labels small enough to fit comfortably (fontSize 18–34) and space them so they never collide with each other or your own shapes.`
   );
   if (context.requestIndex && context.requestIndex > 0) {
-    lines.push(`This is request #${context.requestIndex} in an ongoing conversation.`);
+    lines.push(`This is request #${context.requestIndex} in an ongoing conversation. Your drawing should be a fresh, self-contained picture on its own blank area.`);
   }
   if (context.existingDrawing) {
-    lines.push(`EXISTING CONTENT ON THE BOARD (same normalized 0-1000 coordinate space, so you can align new drawing with it):`);
+    lines.push(`EXISTING CONTENT ON THE BOARD (for context only — it lives in a separate area; do NOT draw on or next to it, but do look at it to avoid repeating the same points and to stay consistent with the lesson):`);
     lines.push(context.existingDrawing);
+  }
+  if (context.selectionContext && context.selectionContext.length > 0) {
+    lines.push(`USER-SELECTED ITEMS (the user circled these on the board and asked you to focus on them for this request. Explain and elaborate on these; you may redraw them enlarged as the centerpiece of your fresh sheet):`);
+    for (let i = 0; i < context.selectionContext.length; i++) {
+      lines.push(`- ${context.selectionContext[i]}`);
+    }
   }
   if (context.conversation && context.conversation.length > 0) {
     lines.push(`CONVERSATION HISTORY (most recent first):`);
@@ -72,7 +79,7 @@ export function buildUserPrompt(context: DrawingRequestContext): string {
     }
   }
   lines.push(
-    `Follow-up instructions: do not redraw content that already exists unless the user asks you to change it. Add to the board. Keep every coordinate inside 0..1000. Return the JSON drawing commands now.`
+    `Follow-up instructions: do not redraw anything that already exists on the board. Create your response as a fresh, self-contained drawing on your reserved blank sheet, using the EXISTING CONTENT summary only for lesson context. Return the JSON drawing commands now.`
   );
   return lines.join("\n");
 }

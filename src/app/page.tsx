@@ -5,6 +5,7 @@ import DrawingToolbar from "@/components/whiteboard/DrawingToolbar";
 import Whiteboard from "@/components/whiteboard/Whiteboard";
 import AIInput from "@/components/whiteboard/AIInput";
 import AIPanel from "@/components/whiteboard/AIPanel";
+import SelectionPopover from "@/components/whiteboard/SelectionPopover";
 
 export default function Home() {
   return (
@@ -14,6 +15,7 @@ export default function Home() {
         <DrawingToolbar />
         <div className="relative min-w-0 flex-1">
           <Whiteboard />
+          <SelectionPopover />
           <AIInput />
         </div>
         <AIPanel />

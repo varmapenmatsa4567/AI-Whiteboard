@@ -2,17 +2,24 @@
 
 import { useMemo, useState } from "react";
 import { useAskAI, buildChatGPTPrompt } from "./useAskAI";
+import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { SendIcon, StopIcon, SparkIcon, CloseIcon } from "./icons";
 
 export default function AIInput() {
   const { ask, askChatGPT, stop, drawingBusy } = useAskAI();
+  const selectionContext = useWhiteboardStore((s) => s.selectionContext);
+  const removeSelectionContext = useWhiteboardStore((s) => s.removeSelectionContext);
+  const clearSelectionContext = useWhiteboardStore((s) => s.clearSelectionContext);
   const [mode, setMode] = useState<"ask" | "chatgpt">("ask");
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
   const [chatGptResponse, setChatGptResponse] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const promptText = useMemo(() => buildChatGPTPrompt(value.trim() || "Draw a colorful diagram"), [value]);
+  const promptText = useMemo(
+    () => buildChatGPTPrompt(value.trim() || "Draw a colorful diagram", selectionContext),
+    [value, selectionContext]
+  );
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,6 +127,40 @@ export default function AIInput() {
               {drawingBusy ? "Drawing…" : "Draw it"}
             </button>
           </div>
+        </div>
+      )}
+
+      {selectionContext.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
+          <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            In context
+          </span>
+          {selectionContext.map((label, i) => (
+            <span
+              key={`${label}_${i}`}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
+            >
+              {label}
+              <button
+                type="button"
+                onClick={() => removeSelectionContext(i)}
+                className="text-slate-400 transition-colors hover:text-slate-600"
+                aria-label={`Remove "${label}" from context`}
+                title="Remove from context"
+              >
+                <CloseIcon width={11} height={11} />
+              </button>
+            </span>
+          ))}
+          {selectionContext.length > 1 && (
+            <button
+              type="button"
+              onClick={clearSelectionContext}
+              className="ml-auto text-[11px] font-medium text-slate-400 transition-colors hover:text-slate-600"
+            >
+              Clear all
+            </button>
+          )}
         </div>
       )}
 

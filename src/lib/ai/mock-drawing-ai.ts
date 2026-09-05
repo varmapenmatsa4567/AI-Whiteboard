@@ -91,15 +91,15 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
       description: "I'll draw a simple car: body, windows, wheels and a ground line.",
       commands: [
         G(
-          S([[150, 460], [230, 400], [290, 390], [360, 330], [540, 330], [600, 390], [700, 395], [780, 455], [780, 540], [150, 540], [150, 460]], 5, undefined, "I'm drawing the body of the car."),
-          S([[345, 400], [370, 340], [395, 335]], undefined, undefined, "Now the roof line."),
-          rect(420, 385, 470, 420, 3, "#38bdf8", undefined, "Here's the front window."),
-          rect(500, 380, 555, 420, 3, "#38bdf8", undefined, "And the rear window.")
+          S([[150, 460], [230, 400], [290, 390], [360, 330], [540, 330], [600, 390], [700, 395], [780, 455], [780, 540], [150, 540], [150, 460]], 5, undefined, "I'm drawing the body of the car — this is the main shape."),
+          S([[345, 400], [370, 340], [395, 335]], undefined, undefined, "Now the roof line, sloping gently into the body."),
+          rect(420, 385, 470, 420, 3, "#38bdf8", undefined, "Here's the front window, right behind the hood."),
+          rect(500, 380, 555, 420, 3, "#38bdf8", undefined, "And the rear window to match.")
         ),
-        P(700, "Now let's add the wheels."),
-        G(circle(280, 560, 58, 5, "#e11d48", "The first wheel."), circle(650, 560, 58, 5, "#e11d48", "And the second wheel.")),
+        P(700, "Now that we have the body, let's add the wheels."),
+        G(circle(280, 560, 58, 5, "#e11d48", "The first wheel, rolling under the front."), circle(650, 560, 58, 5, "#e11d48", "And the second wheel under the back.")),
         P(400),
-        G(S([[120, 585], [800, 585]], 3, "#16a34a", "Finally, the ground line."), T(350, 640, "Car!", 30, undefined, "And I label it, car.")),
+        G(S([[120, 585], [800, 585]], 3, "#16a34a", "Finally, a ground line so the car has something to sit on."), T(350, 640, "Car!", 30, undefined, "And I label it, car!")),
       ],
     }),
   },

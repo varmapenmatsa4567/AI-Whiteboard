@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { Camera, ChatMessage, DrawingSpeed, Tool, WhiteboardItem } from "@/types/whiteboard";
+import type { Camera, ChatMessage, DrawingSpeed, Selection, Tool, WhiteboardItem } from "@/types/whiteboard";
 
 const MAX_HISTORY = 120;
 
@@ -22,11 +22,22 @@ interface WhiteboardState {
   viewport: Viewport;
   chat: ChatMessage[];
   lastError: string | null;
+  planStep: { canBack: boolean; canForward: boolean; index: number; total: number } | null;
+  subtitle: string | null;
+  selection: Selection | null;
+  selectionContext: string[];
 
   addItems: (items: WhiteboardItem[], record?: boolean) => void;
   undo: () => void;
   redo: () => void;
   clearCanvas: () => void;
+
+  setPlanStep: (planStep: WhiteboardState["planStep"]) => void;
+  setSubtitle: (subtitle: string | null) => void;
+  setSelection: (selection: Selection | null) => void;
+  addSelectionContext: (labels: string[]) => void;
+  removeSelectionContext: (index: number) => void;
+  clearSelectionContext: () => void;
 
   setCamera: (camera: Camera) => void;
   panBy: (dx: number, dy: number) => void;
@@ -57,6 +68,26 @@ export const useWhiteboardStore = create<WhiteboardState>()((set, get) => ({
   viewport: { width: 1200, height: 768 },
   chat: [],
   lastError: null,
+  planStep: null,
+  subtitle: null,
+  selection: null,
+  selectionContext: [],
+
+  setPlanStep: (planStep) => set({ planStep }),
+  setSubtitle: (subtitle) => set({ subtitle }),
+  setSelection: (selection) => set({ selection }),
+  addSelectionContext: (labels) =>
+    set((s) => {
+      const existing = new Set(s.selectionContext);
+      const fresh = labels.filter((l) => !existing.has(l));
+      if (fresh.length === 0) return s;
+      return { selectionContext: [...s.selectionContext, ...fresh].slice(-50) };
+    }),
+  removeSelectionContext: (index) =>
+    set((s) => ({
+      selectionContext: s.selectionContext.filter((_, i) => i !== index),
+    })),
+  clearSelectionContext: () => set({ selectionContext: [] }),
 
   addItems: (items, record = true) => {
     if (items.length === 0) return;
@@ -87,7 +118,7 @@ export const useWhiteboardStore = create<WhiteboardState>()((set, get) => ({
   clearCanvas: () => {
     const { items, history } = get();
     if (items.length === 0) return;
-    set({ items: [], history: [...history, items].slice(-MAX_HISTORY), future: [] });
+    set({ items: [], history: [...history, items].slice(-MAX_HISTORY), future: [], selection: null, selectionContext: [] });
   },
 
   setCamera: (camera) => set({ camera: { ...camera, zoom: clampZoom(camera.zoom) } }),

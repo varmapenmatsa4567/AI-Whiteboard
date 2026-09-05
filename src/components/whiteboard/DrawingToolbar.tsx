@@ -2,6 +2,7 @@
 
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { ZoomInIcon, ZoomOutIcon, FitIcon } from "./icons";
+import { liveEngine } from "./DrawingEngine";
 
 export default function DrawingToolbar() {
   const tool = useWhiteboardStore((s) => s.tool);
@@ -10,6 +11,7 @@ export default function DrawingToolbar() {
   const canRedo = useWhiteboardStore((s) => s.future.length > 0);
   const hasItems = useWhiteboardStore((s) => s.items.length > 0);
   const camera = useWhiteboardStore((s) => s.camera);
+  const planStep = useWhiteboardStore((s) => s.planStep);
 
   const actions = {
     undo: () => useWhiteboardStore.getState().undo(),
@@ -17,11 +19,14 @@ export default function DrawingToolbar() {
     clear: () => useWhiteboardStore.getState().clearCanvas(),
     fit: () => useWhiteboardStore.getState().fitDrawing(),
     zoom: (f: number) => useWhiteboardStore.getState().zoomBy(f),
+    stepBack: () => liveEngine.current?.stepBack(),
+    stepForward: () => liveEngine.current?.stepForward(),
   };
 
   const tools = [
     { id: "draw" as const, label: "Draw", key: "D", icon: <PenGlyph /> },
     { id: "erase" as const, label: "Erase", key: "E", icon: <EraserGlyph /> },
+    { id: "select" as const, label: "Circle / Select", key: "S", icon: <SelectGlyph /> },
     { id: "pan" as const, label: "Pan", key: "H", icon: <HandGlyph /> },
   ];
 
@@ -68,6 +73,28 @@ export default function DrawingToolbar() {
       </div>
 
       <div className="my-1 h-px w-6 bg-slate-200" />
+
+      <div className="flex flex-col items-center gap-0.5">
+        <button
+          title="Previous step (⇧⌘←)"
+          onClick={actions.stepBack}
+          disabled={!planStep?.canBack}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-200/70 disabled:opacity-30"
+        >
+          <StepBackGlyph />
+        </button>
+        <button
+          title="Next step (⇧⌘→)"
+          onClick={actions.stepForward}
+          disabled={!planStep?.canForward}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors hover:bg-slate-200/70 disabled:opacity-30"
+        >
+          <StepForwardGlyph />
+        </button>
+        <div className="min-h-[13px] select-none text-center text-[9px] font-semibold tabular-nums text-slate-400">
+          {planStep ? `${planStep.index}/${planStep.total}` : "\u2013/\u2013"}
+        </div>
+      </div>
 
       <button
         title="Undo (⌘Z)"
@@ -145,6 +172,14 @@ function HandGlyph() {
     </svg>
   );
 }
+function SelectGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="8" strokeDasharray="3 2.4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
+    </svg>
+  );
+}
 function UndoGlyph() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -198,6 +233,22 @@ function ArrowGlyph() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 12h14" />
       <path d="m14 6 6 6-6 6" />
+    </svg>
+  );
+}
+function StepBackGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 5v14" />
+      <path d="M20 6.5 10.5 12l9.5 5.5z" />
+    </svg>
+  );
+}
+function StepForwardGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 5v14" />
+      <path d="M4 6.5 13.5 12 4 17.5z" />
     </svg>
   );
 }

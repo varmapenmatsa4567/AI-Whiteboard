@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { DrawingEngine, liveEngine } from "./DrawingEngine";
 
-type Modality = "draw" | "shape" | "pan" | "pinch" | null;
+type Modality = "draw" | "shape" | "select" | "pan" | "pinch" | null;
 
 interface PinchState {
   dist: number;
@@ -118,6 +118,12 @@ export default function Whiteboard() {
       modeRef.current = "pan";
       return;
     }
+    if (tool === "select") {
+      modeRef.current = "select";
+      const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
+      if (world) engineRef.current?.startSelection(world, e.altKey ? "lasso" : "ellipse");
+      return;
+    }
     const isShape = tool === "rect" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "triangle";
     if (tool !== "draw" && tool !== "erase" && !isShape) return;
 
@@ -151,6 +157,9 @@ export default function Whiteboard() {
     } else if (modeRef.current === "shape") {
       const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
       if (world) engineRef.current?.moveShape(world);
+    } else if (modeRef.current === "select") {
+      const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
+      if (world) engineRef.current?.moveSelection(world);
     }
   };
 
@@ -163,6 +172,10 @@ export default function Whiteboard() {
     } else if (modeRef.current === "shape") {
       if (cancel) engineRef.current?.cancelShape();
       else engineRef.current?.endShape();
+      modeRef.current = null;
+    } else if (modeRef.current === "select") {
+      if (cancel) engineRef.current?.cancelSelection();
+      else engineRef.current?.finishSelection();
       modeRef.current = null;
     } else if (modeRef.current === "pan") {
       modeRef.current = null;
@@ -209,10 +222,15 @@ export default function Whiteboard() {
         e.preventDefault();
         return;
       }
+      if (e.key === "Escape") {
+        useWhiteboardStore.getState().setSelection(null);
+        return;
+      }
       const k = e.key.toLowerCase();
       if (k === "v" || k === "d") setTool("draw");
       else if (k === "e") setTool("erase");
       else if (k === "h") setTool("pan");
+      else if (k === "s") setTool("select");
       else if (k === "r") setTool("rect");
       else if (k === "o") setTool("ellipse");
       else if (k === "l") setTool("line");
@@ -257,6 +275,17 @@ export default function Whiteboard() {
         onContextMenu={(e) => e.preventDefault()}
       />
       {ready && <Hud ready={ready} />}
+      <SubtitleBar />
+    </div>
+  );
+}
+
+function SubtitleBar() {
+  const subtitle = useWhiteboardStore((s) => s.subtitle);
+  if (!subtitle) return null;
+  return (
+    <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 w-max max-w-[min(92%,44rem)] -translate-x-1/2 rounded-xl border border-slate-200 bg-white/90 px-5 py-2.5 text-center text-[15px] font-medium leading-snug text-slate-700 shadow-md backdrop-blur">
+      {subtitle}
     </div>
   );
 }

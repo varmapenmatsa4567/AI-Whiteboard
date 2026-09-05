@@ -7,7 +7,15 @@ export type Camera = {
   zoom: number;
 };
 
-export type Tool = "draw" | "erase" | "pan" | "rect" | "ellipse" | "line" | "arrow" | "triangle";
+export type Tool = "draw" | "erase" | "pan" | "select" | "rect" | "ellipse" | "line" | "arrow" | "triangle";
+
+export type SelectionKind = "ellipse" | "lasso";
+
+/** A user-circled region on the board, expressed as a world-space polygon. */
+export interface Selection {
+  kind: SelectionKind;
+  poly: Point[];
+}
 
 export type DrawingSpeed = "slow" | "normal" | "fast";
 

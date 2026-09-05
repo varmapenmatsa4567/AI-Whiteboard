@@ -1,6 +1,7 @@
 import type { DrawingCommand, DrawingPlan, Point, Region } from "@/types/drawing";
 import type { WhiteboardItem } from "@/types/whiteboard";
 import {
+  NORMALIZED,
   clampNormalized,
   normalizedScale,
   normalizedToWorld,
@@ -38,11 +39,11 @@ function mapStroke(
   region: Region,
   seed: number
 ): WhiteboardItem {
-  const scale = normalizedScale(region);
   const mapped = points.map((p) => normalizedToWorld(clampNormalized(p.x), clampNormalized(p.y), region));
-  const spacing = Math.max(2, Math.min(scale * 5, 14));
+  const worldPerNorm = region.width / NORMALIZED;
+  const spacing = Math.max(2, Math.min(worldPerNorm * 5, 14));
   const pts = dedupe(resample(mapped, spacing), 0.4);
-  const widthWorld = Math.max(1, Math.min(40, (width ?? 4) * scale));
+  const widthWorld = Math.max(1, Math.min(40, width ?? 4));
   return { id: uid(), kind: "stroke", points: pts, width: widthWorld, opacity, color, seed };
 }
 
@@ -61,9 +62,8 @@ function mapText(
   color: string | undefined,
   region: Region
 ): WhiteboardItem {
-  const scale = normalizedScale(region);
   const p = normalizedToWorld(clampNormalized(x), clampNormalized(y), region);
-  const size = Math.max(8, Math.min(160, (fontSize ?? 22) * scale));
+  const size = Math.max(8, Math.min(96, fontSize ?? 22));
   return { id: uid(), kind: "text", x: p.x, y: p.y, text: text.slice(0, 400), fontSize: size, color };
 }
 
@@ -125,8 +125,8 @@ function mapOutlineToWorld(outline: Point[], region: Region): Point[] {
   return dedupe(resample(mapped, spacing), 0.4);
 }
 
-function shapeWidthWorld(sw: number | undefined, region: Region): number {
-  return Math.max(1, Math.min(40, (sw ?? 4) * normalizedScale(region)));
+function shapeWidthWorld(sw: number | undefined): number {
+  return Math.max(1, Math.min(40, sw ?? 4));
 }
 
 function mapShape(
@@ -143,7 +143,7 @@ function mapShape(
     id: uid(),
     kind: "shape",
     points: pts,
-    width: shapeWidthWorld(strokeWidth, region),
+    width: shapeWidthWorld(strokeWidth),
     closed,
     color,
     fill,

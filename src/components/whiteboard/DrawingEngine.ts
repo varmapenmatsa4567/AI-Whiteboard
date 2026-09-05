@@ -1,7 +1,7 @@
 "use client";
 
 import type { Point } from "@/types/drawing";
-import type { Tool, WhiteboardItem } from "@/types/whiteboard";
+import type { SelectionKind, Tool, WhiteboardItem } from "@/types/whiteboard";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { classifyItem, drawSprite, intersectsBox, type Sprite, buildRibbonPath, INK, colorFor } from "@/lib/drawing/renderer";
 import { dedupe, pathLength, resample, revealCut } from "@/lib/drawing/smoothing";
@@ -9,13 +9,19 @@ import { pxPerSecond, speedMultiplier, interStrokeDelayMs, easeInOut } from "@/l
 import { screenToWorld as screenToWorldPoint, visibleWorldRect } from "@/lib/drawing/coordinates";
 import type { PlannedStep } from "@/lib/drawing/commands";
 import { uid, shapeFromDrag, type ShapeKind } from "@/lib/drawing/commands";
+import { polygonFromEllipse } from "@/lib/drawing/selection";
 
 const GRID_BASE = 48;
+const SELECTION_COLOR = "#e11d48";
+const SELECTION_LOOP_MIN = 2;
 
 /** Module-level handle so UI widgets can drive the mounted engine. */
 export const liveEngine: { current: DrawingEngine | null } = { current: null };
 
 const SHAPE_TOOLS = new Set<Tool>(["rect", "ellipse", "line", "arrow", "triangle"]);
+
+/** Fixed reveal window (ms at normal speed) for shapes — they snap in quickly. */
+const SHAPE_REVEAL_MS = 250;
 
 /** Prefer the macOS "Samantha" voice for narrations, falling back to the browser default. */
 function pickNarrationVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
@@ -35,6 +41,8 @@ interface AnimCursor {
 
 export interface EngineState {
   animating: boolean;
+  canStepBack: boolean;
+  canStepForward: boolean;
 }
 
 export class DrawingEngine {
@@ -47,7 +55,10 @@ export class DrawingEngine {
   private lastTime = 0;
   private unsub: (() => void) | null = null;
 
-  private queue: PlannedStep[] = [];
+  private planSteps: PlannedStep[] = [];
+  private planCursor = 0;
+  /** Items committed by the plan, indexed by step; null for pause steps. */
+  private committedByStep: (WhiteboardItem | null)[] = [];
   private current: AnimCursor | null = null;
   private idle = 0;
   private speechActive = false;
@@ -56,6 +67,7 @@ export class DrawingEngine {
 
   private pointerStroke: { item: WhiteboardItem; pts: Point[]; pressures: number[] } | null = null;
   private shapeDraft: { tool: ShapeKind; anchor: Point; current: Point } | null = null;
+  private selectionDraft: { kind: SelectionKind; anchor: Point; current: Point; path: Point[] } | null = null;
 
   private spriteCache = new Map<string, Sprite>();
   private animating = false;
@@ -69,6 +81,7 @@ export class DrawingEngine {
    */
   private speakText(text: string): void {
     this.speechActive = false;
+    useWhiteboardStore.getState().setSubtitle(text);
     if (!text || typeof window === "undefined" || !("speechSynthesis" in window)) return;
     this.speechActive = true;
     // Safety net: if the utterance never fires its onend/onerror callbacks the
@@ -106,6 +119,7 @@ export class DrawingEngine {
       this.speechTimeout = null;
     }
     this.speechActive = false;
+    useWhiteboardStore.getState().setSubtitle(null);
     if (this.waitForSpeech) {
       this.waitForSpeech = false;
       // Resume the idle clock so the next step starts.
@@ -125,6 +139,8 @@ export class DrawingEngine {
     if (item.kind === "text") {
       textChars = item.text.length;
       total = item.text.length;
+    } else if (item.kind === "shape") {
+      total = SHAPE_REVEAL_MS;
     } else {
       total = Math.max(1, pathLength(item.points));
     }
@@ -135,6 +151,7 @@ export class DrawingEngine {
   private cancelSpeech(): void {
     this.speechActive = false;
     this.waitForSpeech = false;
+    useWhiteboardStore.getState().setSubtitle(null);
     if (this.speechTimeout !== null) {
       clearTimeout(this.speechTimeout);
       this.speechTimeout = null;
@@ -161,12 +178,16 @@ export class DrawingEngine {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.unsub?.();
-    this.queue = [];
+    this.planSteps = [];
+    this.planCursor = 0;
+    this.committedByStep = [];
     this.current = null;
     this.pointerStroke = null;
     this.shapeDraft = null;
+    this.selectionDraft = null;
     this.spriteCache.clear();
     this.cancelSpeech();
+    this.pushState();
     if (liveEngine.current === this) liveEngine.current = null;
   }
 
@@ -191,30 +212,106 @@ export class DrawingEngine {
 
   playSteps(steps: PlannedStep[]): void {
     this.stopDrawing();
-    this.queue = steps;
+    this.planSteps = steps;
+    this.committedByStep = new Array(steps.length).fill(null);
     this.idle = 160;
     this.advance(0);
     this.setAnimating(true);
     this.needsRender = true;
+    this.pushState();
   }
 
   stopDrawing(): void {
-    this.queue = [];
+    this.planSteps = [];
+    this.planCursor = 0;
+    this.committedByStep = [];
     this.current = null;
+    this.idle = 0;
     this.setAnimating(false);
     this.cancelSpeech();
     this.needsRender = true;
+    this.pushState();
+  }
+
+  /**
+   * Move the AI plan forward one step. A step that is mid-animation is fast-
+   * forwarded to its finished state; otherwise the next pending step starts
+   * playing. Playback then continues through the remaining steps on its own.
+   */
+  stepForward(): boolean {
+    if (this.planSteps.length === 0) return false;
+    if (this.current !== null) {
+      const cur = this.current;
+      cur.revealed = cur.total;
+      this.cancelSpeech();
+      this.commitCurrentStep();
+      this.needsRender = true;
+      return true;
+    }
+    if (this.planCursor >= this.planSteps.length) return false;
+    this.startNext();
+    this.needsRender = true;
+    return true;
+  }
+
+  /**
+   * Move the AI plan back one step each time it is pressed. Any mid-flight
+   * drawing is cancelled and the previous step's committed items are removed,
+   * so holding/pressing Back repeatedly retreats any number of steps. Playback
+   * then re-plays from the retreated position and continues through the end.
+   */
+  stepBack(): boolean {
+    if (this.planSteps.length === 0) return false;
+    if (this.current !== null) {
+      this.current = null;
+      this.idle = 0;
+    }
+    if (this.planCursor <= 0) return false;
+    const prevItem = this.committedByStep[this.planCursor - 1];
+    this.committedByStep[this.planCursor - 1] = null;
+    this.planCursor -= 1;
+    if (prevItem) {
+      useWhiteboardStore.setState((s) => ({ items: s.items.filter((i) => i.id !== prevItem.id) }));
+    }
+    this.cancelSpeech();
+    this.setAnimating(false);
+    this.needsRender = true;
+    this.pushState();
+    return true;
   }
 
   get isAnimating(): boolean {
     return this.animating;
   }
 
+  private canStepBack(): boolean {
+    return this.planSteps.length > 0 && (this.current !== null || this.planCursor > 0);
+  }
+
+  private canStepForward(): boolean {
+    return this.planSteps.length > 0 && (this.current !== null || this.planCursor < this.planSteps.length);
+  }
+
+  private pushState(): void {
+    const animating = this.animating;
+    const canStepBack = this.canStepBack();
+    const canStepForward = this.canStepForward();
+    this.onState?.({ animating, canStepBack, canStepForward });
+    useWhiteboardStore.getState().setPlanStep(
+      this.planSteps.length > 0
+        ? {
+            canBack: canStepBack,
+            canForward: canStepForward,
+            index: Math.min(this.planCursor + (this.current !== null ? 1 : 0), this.planSteps.length),
+            total: this.planSteps.length,
+          }
+        : null,
+    );
+  }
+
   private setAnimating(v: boolean): void {
-    if (this.animating !== v) {
-      this.animating = v;
-      this.onState?.({ animating: v });
-    }
+    this.animating = v;
+    this.pushState();
   }
 
   // ── Manual drawing ──────────────────────────────────────────────────
@@ -311,6 +408,68 @@ export class DrawingEngine {
     this.needsRender = true;
   }
 
+  // ── Region selection (circle / lasso marquee) ────────────────────────
+
+  startSelection(world: Point, kind: SelectionKind): void {
+    this.selectionDraft = { kind, anchor: world, current: world, path: [world] };
+    this.needsRender = true;
+  }
+
+  moveSelection(world: Point): void {
+    const d = this.selectionDraft;
+    if (!d) return;
+    if (d.kind === "lasso") {
+      const last = d.path[d.path.length - 1];
+      if (last && Math.hypot(world.x - last.x, world.y - last.y) < 1.5) return;
+      d.path.push(world);
+    }
+    d.current = world;
+    this.needsRender = true;
+  }
+
+  cancelSelection(): void {
+    this.selectionDraft = null;
+    this.needsRender = true;
+  }
+
+  finishSelection(): void {
+    const d = this.selectionDraft;
+    this.selectionDraft = null;
+    if (!d) return;
+    let poly: Point[];
+    if (d.kind === "ellipse") {
+      const rx = Math.abs(d.current.x - d.anchor.x) / 2;
+      const ry = Math.abs(d.current.y - d.anchor.y) / 2;
+      if (rx < SELECTION_LOOP_MIN && ry < SELECTION_LOOP_MIN) {
+        this.needsRender = true;
+        return;
+      }
+      poly = polygonFromEllipse((d.anchor.x + d.current.x) / 2, (d.anchor.y + d.current.y) / 2, rx, ry);
+    } else {
+      poly = d.path;
+      if (poly.length < 3) {
+        this.needsRender = true;
+        return;
+      }
+      let min = Infinity;
+      let max = -Infinity;
+      for (const p of poly) {
+        min = Math.min(min, p.x, p.y);
+        max = Math.max(max, p.x, p.y);
+      }
+      // Close the loop and reject near-degenerate scribbles.
+      if (max - min < SELECTION_LOOP_MIN) {
+        this.needsRender = true;
+        return;
+      }
+      const first = poly[0];
+      const last = poly[poly.length - 1];
+      if (Math.hypot(last.x - first.x, last.y - first.y) > 0.01) poly.push(first);
+    }
+    useWhiteboardStore.getState().setSelection({ kind: d.kind, poly });
+    this.needsRender = true;
+  }
+
   // ── Main loop ───────────────────────────────────────────────────────
 
   private tick = (t: number): void => {
@@ -318,7 +477,12 @@ export class DrawingEngine {
     this.raf = requestAnimationFrame(this.tick);
     const dt = Math.min(0.05, (t - this.lastTime) / 1000);
     this.lastTime = t;
-    if (this.current || this.queue.length > 0 || this.idle > 0 || this.waitForSpeech) {
+    if (
+      this.current ||
+      this.idle > 0 ||
+      this.waitForSpeech ||
+      this.planCursor < this.planSteps.length
+    ) {
       this.advance(dt * 1000);
       this.needsRender = true;
     }
@@ -347,18 +511,22 @@ export class DrawingEngine {
           if (this.speechActive) {
             this.waitForSpeech = true;
             this.setAnimating(true);
-          } else if (this.queue.length > 0) {
+          } else if (this.planCursor < this.planSteps.length) {
             this.startNext();
           } else {
             this.setAnimating(false);
+            this.pushState();
           }
         }
       }
       return;
     }
 
-    if (!this.current && this.queue.length > 0) {
-      this.startNext();
+    if (!this.current) {
+      if (this.planCursor < this.planSteps.length) {
+        this.startNext();
+        return;
+      }
       return;
     }
 
@@ -369,34 +537,56 @@ export class DrawingEngine {
     const item = cur.step.item;
     if (item.kind === "text") {
       cur.revealed += 70 * speedMultiplier(speed) * (ms / 1000);
-      if (cur.revealed >= cur.total) {
-        this.commitItem(item);
-        this.current = null;
-        this.idle = interStrokeDelayMs(speed);
-      }
-      return;
+    } else if (item.kind === "shape") {
+      cur.revealed += speedMultiplier(speed) * ms;
+    } else {
+      cur.revealed += pxPerSecond(speed) * (ms / 1000);
     }
-
-    cur.revealed += pxPerSecond(speed) * (ms / 1000);
     if (cur.revealed >= cur.total) {
-      this.commitItem(item);
-      this.current = null;
-      this.idle = interStrokeDelayMs(speed);
+      this.commitCurrentStep();
     }
   }
 
   private startNext(): void {
-    const step = this.queue.shift();
-    if (!step) {
+    this.waitForSpeech = false;
+    if (this.planCursor >= this.planSteps.length) {
       this.setAnimating(false);
+      this.pushState();
       return;
     }
-    // Speak narration and begin drawing/pausing the step at the same time.
-    this.waitForSpeech = false;
+    const step = this.planSteps[this.planCursor];
+    // Pause steps carry no item; consume them and just honour the delay.
+    if (step.kind === "pause") {
+      this.planCursor += 1;
+      this.idle = step.duration ?? 400;
+      if (step.explain) {
+        this.speakText(step.explain);
+      } else {
+        useWhiteboardStore.getState().setSubtitle(null);
+      }
+      this.pushState();
+      return;
+    }
+    // Speak narration and begin drawing the step at the same time.
     if (step.explain) {
       this.speakText(step.explain);
+    } else {
+      useWhiteboardStore.getState().setSubtitle(null);
     }
     this.resumeStep(step);
+    this.pushState();
+  }
+
+  private commitCurrentStep(): void {
+    const cur = this.current;
+    const item = cur?.step.item;
+    if (!item) return;
+    this.commitItem(item);
+    this.committedByStep[this.planCursor] = item;
+    this.current = null;
+    this.planCursor += 1;
+    this.idle = interStrokeDelayMs(useWhiteboardStore.getState().speed);
+    this.pushState();
   }
 
   private commitItem(item: WhiteboardItem): void {
@@ -434,6 +624,7 @@ export class DrawingEngine {
     this.drawPointer(ctx);
     this.drawShapePreview(ctx);
     this.drawAnimating(ctx);
+    this.drawSelection(ctx);
   }
 
   private drawGrid(ctx: CanvasRenderingContext2D, camera: { x: number; y: number; zoom: number }, viewport: { width: number; height: number }): void {
@@ -536,6 +727,36 @@ export class DrawingEngine {
         ctx.fill(buildRibbonPath(partial, item.width, item.kind === "stroke" ? item.pressure : undefined), "nonzero");
       }
     }
+    ctx.restore();
+  }
+
+  /** Dashed accent marquee for the live drag and any committed selection. */
+  private drawSelection(ctx: CanvasRenderingContext2D): void {
+    const { camera } = useWhiteboardStore.getState();
+    let poly: Point[] | null = null;
+    const d = this.selectionDraft;
+    if (d) {
+      poly = d.kind === "ellipse"
+        ? polygonFromEllipse((d.anchor.x + d.current.x) / 2, (d.anchor.y + d.current.y) / 2, Math.abs(d.current.x - d.anchor.x) / 2, Math.abs(d.current.y - d.anchor.y) / 2)
+        : d.path;
+    } else {
+      const sel = useWhiteboardStore.getState().selection;
+      if (sel) poly = sel.poly;
+    }
+    if (!poly || poly.length < 2) return;
+
+    ctx.save();
+    ctx.strokeStyle = SELECTION_COLOR;
+    ctx.lineWidth = 2 / camera.zoom;
+    ctx.setLineDash([6 / camera.zoom, 5 / camera.zoom]);
+    ctx.beginPath();
+    ctx.moveTo(poly[0].x, poly[0].y);
+    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    if (poly.length >= 3) {
+      ctx.fillStyle = "rgba(225, 29, 72, 0.07)";
+      ctx.fill();
+    }
+    ctx.stroke();
     ctx.restore();
   }
 

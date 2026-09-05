@@ -126,6 +126,7 @@ export interface DrawingRequestContext {
   region: Region;
   existingDrawing?: string;
   conversation?: DrawRequestConversationMessage[];
+  selectionContext?: string[];
   requestIndex?: number;
 }
 

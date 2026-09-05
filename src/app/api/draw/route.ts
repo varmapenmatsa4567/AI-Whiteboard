@@ -19,6 +19,7 @@ const RequestSchema = z.object({
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(2000) }))
     .max(30)
     .optional(),
+  selectionContext: z.array(z.string().min(1).max(2000)).max(50).optional(),
   requestIndex: z.number().int().min(0).optional(),
 });
 
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
     region: input.region,
     existingDrawing: input.existingDrawing,
     conversation: input.conversation,
+    selectionContext: input.selectionContext,
     requestIndex: input.requestIndex,
   };
 
