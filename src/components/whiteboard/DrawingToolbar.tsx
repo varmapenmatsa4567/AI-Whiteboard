@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { ZoomInIcon, ZoomOutIcon, FitIcon } from "./icons";
 import { liveEngine } from "./DrawingEngine";
+import type { Tool } from "@/types/whiteboard";
 
 export default function DrawingToolbar() {
   const tool = useWhiteboardStore((s) => s.tool);
@@ -12,6 +14,8 @@ export default function DrawingToolbar() {
   const hasItems = useWhiteboardStore((s) => s.items.length > 0);
   const camera = useWhiteboardStore((s) => s.camera);
   const planStep = useWhiteboardStore((s) => s.planStep);
+  const [shapesOpen, setShapesOpen] = useState(false);
+  const shapeMenuRef = useRef<HTMLDivElement>(null);
 
   const actions = {
     undo: () => useWhiteboardStore.getState().undo(),
@@ -30,13 +34,33 @@ export default function DrawingToolbar() {
     { id: "pan" as const, label: "Pan", key: "H", icon: <HandGlyph /> },
   ];
 
-  const shapes = [
-    { id: "rect" as const, label: "Rectangle", key: "R", icon: <RectGlyph /> },
-    { id: "ellipse" as const, label: "Ellipse", key: "O", icon: <EllipseGlyph /> },
-    { id: "line" as const, label: "Line", key: "L", icon: <LineGlyph /> },
-    { id: "arrow" as const, label: "Arrow", key: "A", icon: <ArrowGlyph /> },
-    { id: "triangle" as const, label: "Triangle", key: "T", icon: <TriangleGlyph /> },
+  const shapes: { id: Tool; label: string; key: string; icon: ReactNode }[] = [
+    { id: "rect", label: "Rectangle", key: "R", icon: <RectGlyph /> },
+    { id: "ellipse", label: "Ellipse", key: "O", icon: <EllipseGlyph /> },
+    { id: "line", label: "Line", key: "L", icon: <LineGlyph /> },
+    { id: "arrow", label: "Arrow", key: "A", icon: <ArrowGlyph /> },
+    { id: "darrow", label: "Double Arrow", key: "W", icon: <DoubleArrowGlyph /> },
+    { id: "triangle", label: "Triangle", key: "T", icon: <TriangleGlyph /> },
   ];
+  const activeShape = shapes.find((s) => s.id === tool) ?? shapes[0];
+
+  useEffect(() => {
+    if (!shapesOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (shapeMenuRef.current && !shapeMenuRef.current.contains(e.target as Node)) setShapesOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShapesOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [shapesOpen]);
 
   return (
     <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-slate-50 py-2">
@@ -57,19 +81,46 @@ export default function DrawingToolbar() {
 
       <div className="my-1 h-px w-6 bg-slate-200" />
 
-      <div className="flex flex-col gap-1">
-        {shapes.map((t) => (
-          <button
-            key={t.id}
-            title={`${t.label} (${t.key})`}
-            onClick={() => setTool(t.id)}
-            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-              tool === t.id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:bg-slate-200/70 hover:text-slate-800"
-            }`}
+      <div className="relative">
+        <button
+          title={`${activeShape.label} (${activeShape.key}) — click for all shapes`}
+          aria-expanded={shapesOpen}
+          onClick={() => setShapesOpen((o) => !o)}
+          className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+            shapes.some((s) => s.id === tool)
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-500 hover:bg-slate-200/70 hover:text-slate-800"
+          }`}
+        >
+          {activeShape.icon}
+        </button>
+
+        {shapesOpen && (
+          <div
+            ref={shapeMenuRef}
+            className="absolute left-full top-0 z-30 ml-1 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
           >
-            {t.icon}
-          </button>
-        ))}
+            {shapes.map((s) => (
+              <button
+                key={s.id}
+                title={`${s.label} (${s.key})`}
+                onClick={() => {
+                  setTool(s.id);
+                  setShapesOpen(false);
+                }}
+                className={`flex w-40 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  tool === s.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {s.icon}
+                <span className="flex-1 text-xs font-medium">{s.label}</span>
+                <span className={`text-[10px] font-semibold ${tool === s.id ? "text-slate-300" : "text-slate-400"}`}>
+                  {s.key}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="my-1 h-px w-6 bg-slate-200" />
@@ -233,6 +284,15 @@ function ArrowGlyph() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 12h14" />
       <path d="m14 6 6 6-6 6" />
+    </svg>
+  );
+}
+function DoubleArrowGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12h16" />
+      <path d="m9 7-5 5 5 5" />
+      <path d="m15 7 5 5-5 5" />
     </svg>
   );
 }

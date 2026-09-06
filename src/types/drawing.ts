@@ -90,6 +90,15 @@ export type DrawingCommand =
       color?: string;
     } & StepNarration)
   | ({
+      type: "darrow";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      strokeWidth?: number;
+      color?: string;
+    } & StepNarration)
+  | ({
       type: "erase";
       x: number;
       y: number;

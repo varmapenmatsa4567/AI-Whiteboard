@@ -18,7 +18,7 @@ const SELECTION_LOOP_MIN = 2;
 /** Module-level handle so UI widgets can drive the mounted engine. */
 export const liveEngine: { current: DrawingEngine | null } = { current: null };
 
-const SHAPE_TOOLS = new Set<Tool>(["rect", "ellipse", "line", "arrow", "triangle"]);
+const SHAPE_TOOLS = new Set<Tool>(["rect", "ellipse", "line", "arrow", "darrow", "triangle"]);
 
 /** Fixed reveal window (ms at normal speed) for shapes — they snap in quickly. */
 const SHAPE_REVEAL_MS = 250;

@@ -21,7 +21,7 @@ When modifying an existing drawing, preserve existing content unless the user ex
 Study the EXISTING CONTENT ON THE BOARD section in the user message carefully: it summarizes what is already drawn elsewhere on the infinite board. Use it for context — match its placement and colors where appropriate, but remember your new drawing sits on its own blank area, so you never need to crowd it next to or on top of existing content.
 When explaining a concept, organize the drawing into logical steps so it can be played back stroke by stroke.
 
-Command reference. Every command object MUST include a "type" field whose value is exactly one of: "stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "erase", "pause", or "group". Example of the exact shape:
+Command reference. Every command object MUST include a "type" field whose value is exactly one of: "stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "darrow", "erase", "pause", or "group". Example of the exact shape:
 {"type": "stroke", "points": [{"x": 200, "y": 400}, {"x": 800, "y": 400}], "width": 4}
 - stroke: freehand polyline. points are [{"x":..,"y":..}, ...]. width is a marker nib size (default 4, range 1-20).
 - text: a label. Give x,y for the text baseline start and a readable fontSize (default 22, range 12-60).
@@ -30,11 +30,12 @@ Command reference. Every command object MUST include a "type" field whose value 
 - ellipse: a circle or oval. {"type":"ellipse","cx":..,"cy":..,"rx":..,"ry":..} (use rx==ry for a circle). Optional "strokeWidth", "color", "fill".
 - triangle: three vertices. {"type":"triangle","x1":..,"y1":..,"x2":..,"y2":..,"x3":..,"y3":..}. Optional "strokeWidth", "color".
 - arrow: a one-headed arrow. {"type":"arrow","x1":..,"y1":..,"x2":..,"y2":..} (tail to tip). Optional "strokeWidth", "color".
+- darrow: a double-headed arrow (heads at both ends, e.g. for bidirectional flows, axes, or showing a two-way relation). {"type":"darrow","x1":..,"y1":..,"x2":..,"y2":..}. Optional "strokeWidth", "color".
 - erase: clear an area. x,y is the center, width is the diameter of the erased circle (default 24). Used to modify or correct previous work.
 - pause: wait duration milliseconds. Use between logical steps so the viewer can follow.
 - group: nest related commands into one logical step.
 
-Prefer the precise shape commands (rect, ellipse, line, triangle, arrow) for common geometric elements like boxes, circles, borders, connectors and flow-arrows instead of approximating them with freehand "stroke" points. Use freehand "stroke" for curves, organic shapes, and details.
+Prefer the precise shape commands (rect, ellipse, line, triangle, arrow, darrow) for common geometric elements like boxes, circles, borders, connectors and flow-arrows instead of approximating them with freehand "stroke" points. Use freehand "stroke" for curves, organic shapes, and details.
 
 Colors. Both "stroke" and "text" MAY include an optional "color" field as a hex string like "#e11d48". Use colors to add meaning and make the drawing inviting: pick a small, tasteful palette and vary it across strokes (e.g. a dark outline for the main body, a distinct color like "#0ea5e9" for windows, "#f59e0b" for the sun, a warm color like "#e11d48" for a heart, and so on). Use the default dark ink "#1e293b" for the primary outlines and reserve colors for specific parts. Always use full six-digit hex. If you omit "color", the stroke/label uses the default ink.
 
@@ -49,7 +50,7 @@ Do not wrap the JSON in markdown code fences.
 Do not output JavaScript, HTML, SVG, or executable code of any kind.
 Return only the JSON object.`;
 
-export const REPAIR_SYSTEM_PROMPT = `Your previous response was malformed or invalid JSON. Output it again as strictly valid JSON. Every command object MUST have a "type" key equal to one of "stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "erase", "pause", "group". Every point is an object {"x": .., "y": ..}. All braces and brackets must be balanced. Return ONLY the JSON object, with no markdown fences and no extra text.`;
+export const REPAIR_SYSTEM_PROMPT = `Your previous response was malformed or invalid JSON. Output it again as strictly valid JSON. Every command object MUST have a "type" key equal to one of "stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "darrow", "erase", "pause", "group". Every point is an object {"x": .., "y": ..}. All braces and brackets must be balanced. Return ONLY the JSON object, with no markdown fences and no extra text.`;
 
 export function buildUserPrompt(context: DrawingRequestContext): string {
   const lines: string[] = [];

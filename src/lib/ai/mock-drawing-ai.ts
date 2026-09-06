@@ -50,6 +50,10 @@ function arrow(a: Pt, b: Pt, sw = 4, color?: string, explain?: string): DrawingC
   return { type: "arrow", x1: a[0], y1: a[1], x2: b[0], y2: b[1], strokeWidth: sw, color, explain };
 }
 
+function darrow(a: Pt, b: Pt, sw = 4, color?: string, explain?: string): DrawingCommand {
+  return { type: "darrow", x1: a[0], y1: a[1], x2: b[0], y2: b[1], strokeWidth: sw, color, explain };
+}
+
 function rect(x0: number, y0: number, x1: number, y1: number, sw = 4, color?: string, fill?: string, explain?: string): DrawingCommand {
   return { type: "rect", x: x0, y: y0, width: x1 - x0, height: y1 - y0, strokeWidth: sw, color, fill, explain };
 }
@@ -292,7 +296,7 @@ const templates: { test: RegExp; build: (prompt: string) => DrawingPlan }[] = [
     build: () => ({
       description: "I'll draw a coordinate plane with a parabola and label it.",
       commands: [
-        G(arrow([100, 760], [920, 760], 5), arrow([120, 780], [120, 80], 5)),
+        G(darrow([100, 760], [920, 760], 5), darrow([120, 780], [120, 80], 5)),
         P(400),
         G(
           S(

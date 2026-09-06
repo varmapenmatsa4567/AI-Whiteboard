@@ -7,7 +7,7 @@ export type Camera = {
   zoom: number;
 };
 
-export type Tool = "draw" | "erase" | "pan" | "select" | "rect" | "ellipse" | "line" | "arrow" | "triangle";
+export type Tool = "draw" | "erase" | "pan" | "select" | "rect" | "ellipse" | "line" | "arrow" | "darrow" | "triangle";
 
 export type SelectionKind = "ellipse" | "lasso";
 

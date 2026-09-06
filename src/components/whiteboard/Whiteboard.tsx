@@ -124,7 +124,7 @@ export default function Whiteboard() {
       if (world) engineRef.current?.startSelection(world, e.altKey ? "lasso" : "ellipse");
       return;
     }
-    const isShape = tool === "rect" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "triangle";
+    const isShape = tool === "rect" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "darrow" || tool === "triangle";
     if (tool !== "draw" && tool !== "erase" && !isShape) return;
 
     modeRef.current = isShape ? "shape" : "draw";
@@ -235,6 +235,7 @@ export default function Whiteboard() {
       else if (k === "o") setTool("ellipse");
       else if (k === "l") setTool("line");
       else if (k === "a") setTool("arrow");
+      else if (k === "w") setTool("darrow");
       else if (k === "t") setTool("triangle");
       else if (k === "0") useWhiteboardStore.getState().resetCamera();
       else if (k === "1") useWhiteboardStore.getState().fitDrawing();

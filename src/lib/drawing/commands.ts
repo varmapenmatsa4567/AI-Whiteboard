@@ -72,7 +72,7 @@ function mapText(
 // space. They are shared by the AI plan path (normalized coords) and the
 // user toolbar tools (world coords).
 
-export type ShapeKind = "rect" | "ellipse" | "line" | "arrow" | "triangle";
+export type ShapeKind = "rect" | "ellipse" | "line" | "arrow" | "darrow" | "triangle";
 
 export function rectOutline(x: number, y: number, w: number, h: number): Point[] {
   return [
@@ -111,11 +111,38 @@ export function arrowParts(x1: number, y1: number, x2: number, y2: number, headS
   const uy = dy / len;
   const px = -uy;
   const py = ux;
-  const head = Math.min(26, len * 0.3) * headScale;
+  const head = Math.min(20, len * 0.3) * headScale;
   const tip = { x: x2, y: y2 };
   const left = { x: x2 - ux * head + px * head * 0.45, y: y2 - uy * head + py * head * 0.45 };
   const right = { x: x2 - ux * head - px * head * 0.45, y: y2 - uy * head - py * head * 0.45 };
   return { shaft: [{ x: x1, y: y1 }, tip], head: [tip, left, right, tip] };
+}
+
+export interface DoubleArrowParts {
+  shaft: Point[];
+  head1: Point[];
+  head2: Point[];
+}
+
+/** Split an arrow with heads at both ends into a shaft and two filled heads. */
+export function doubleArrowParts(x1: number, y1: number, x2: number, y2: number, headScale = 1): DoubleArrowParts {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+  const head = Math.min(Math.min(20, len * 0.3) * headScale, len / 3);
+  const base1 = { x: x1 + ux * head, y: y1 + uy * head };
+  const base2 = { x: x2 - ux * head, y: y2 - uy * head };
+  const tip1 = { x: x1, y: y1 };
+  const tip2 = { x: x2, y: y2 };
+  return {
+    shaft: [base1, base2],
+    head1: [tip1, { x: base1.x + px * head * 0.45, y: base1.y + py * head * 0.45 }, { x: base1.x - px * head * 0.45, y: base1.y - py * head * 0.45 }, tip1],
+    head2: [tip2, { x: base2.x - px * head * 0.45, y: base2.y - py * head * 0.45 }, { x: base2.x + px * head * 0.45, y: base2.y + py * head * 0.45 }, tip2],
+  };
 }
 
 function mapOutlineToWorld(outline: Point[], region: Region): Point[] {
@@ -173,7 +200,7 @@ function mapEllipse(c: Extract<DrawingCommand, { type: "ellipse" }>, region: Reg
 
 function mapTriangle(c: Extract<DrawingCommand, { type: "triangle" }>, region: Region, seed: number): WhiteboardItem {
   return mapShape(
-    [{ x: c.x1, y: c.y1 }, { x: c.x2, y: c.y2 }, { x: c.x3, y: c.y3 }],
+    triangleOutline({ x: c.x1, y: c.y1 }, { x: c.x2, y: c.y2 }, { x: c.x3, y: c.y3 }),
     true,
     c.strokeWidth,
     c.color,
@@ -222,13 +249,21 @@ export function shapeFromDrag(kind: ShapeKind, a: Point, b: Point, color?: strin
     return [shapeWorldItem([{ x: a.x, y: a.y }, { x: b.x, y: b.y }], false, width, color)];
   }
   if (kind === "triangle") {
-    return [shapeWorldItem([spine, { x: x0, y: y1 }, { x: x1, y: y1 }], true, width, color)];
+    return [shapeWorldItem(triangleOutline(spine, { x: x0, y: y1 }, { x: x1, y: y1 }), true, width, color)];
   }
   if (kind === "arrow") {
     const { shaft, head } = arrowParts(a.x, a.y, b.x, b.y, 1);
     return [
       shapeWorldItem(shaft, false, width, color),
       shapeWorldItem(head, true, width, color, color),
+    ];
+  }
+  if (kind === "darrow") {
+    const { shaft, head1, head2 } = doubleArrowParts(a.x, a.y, b.x, b.y, 1);
+    return [
+      shapeWorldItem(shaft, false, width, color),
+      shapeWorldItem(head1, true, width, color, color),
+      shapeWorldItem(head2, true, width, color, color),
     ];
   }
   return [];
@@ -269,6 +304,11 @@ export function planToSteps(plan: DrawingPlan, region: Region, seed?: number): P
         const { shaft, head } = arrowParts(c.x1, c.y1, c.x2, c.y2);
         steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN), explain: c.explain });
         steps.push({ token: uid(), kind: "stroke", item: mapShape(head, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
+      } else if (c.type === "darrow") {
+        const { shaft, head1, head2 } = doubleArrowParts(c.x1, c.y1, c.x2, c.y2);
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN), explain: c.explain });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(head1, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(head2, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
       } else if (c.type === "erase") {
         steps.push({ token, kind: "erase", item: mapErase(c.x, c.y, c.width, region, seedN), explain: c.explain });
       } else if (c.type === "pause") {

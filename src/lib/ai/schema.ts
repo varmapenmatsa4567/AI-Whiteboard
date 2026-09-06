@@ -94,6 +94,17 @@ const ArrowSchema = z.object({
   explain: Explain,
 });
 
+const DarrowSchema = z.object({
+  type: z.literal("darrow"),
+  x1: z.number().min(-800).max(4000),
+  y1: z.number().min(-800).max(4000),
+  x2: z.number().min(-800).max(4000),
+  y2: z.number().min(-800).max(4000),
+  strokeWidth: z.number().min(0.5).max(80).optional(),
+  color: HEX,
+  explain: Explain,
+});
+
 const EraseSchema = z.object({
   type: z.literal("erase"),
   x: z.number().min(-800).max(4000),
@@ -122,6 +133,7 @@ export const CommandSchema: z.ZodType<DrawingCommand> = z.union([
   EllipseSchema,
   TriangleSchema,
   ArrowSchema,
+  DarrowSchema,
   EraseSchema,
   PauseSchema,
   GroupSchema,
@@ -166,7 +178,7 @@ function normalizeCommand(raw: unknown): unknown {
   }
 
   // Keyed form: exactly one key that is a known command type.
-  const keyTypes = ["stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "erase", "pause", "group"];
+  const keyTypes = ["stroke", "text", "line", "rect", "ellipse", "triangle", "arrow", "darrow", "erase", "pause", "group"];
   const keys = Object.keys(obj).filter((k) => keyTypes.includes(k));
   if (keys.length === 1) {
     const key = keys[0];
@@ -222,6 +234,7 @@ function commandBounds(command: DrawingCommand, box: Bounds | null): Bounds | nu
       break;
     case "line":
     case "arrow":
+    case "darrow":
       grow(command.x1, command.y1);
       grow(command.x2, command.y2);
       break;
@@ -267,6 +280,7 @@ function scaleCommand(command: DrawingCommand, s: number, tx: number, ty: number
       }
     case "line":
     case "arrow":
+    case "darrow":
       {
         const [x1, y1] = both(command.x1, command.y1);
         const [x2, y2] = both(command.x2, command.y2);
