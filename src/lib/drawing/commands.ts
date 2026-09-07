@@ -163,11 +163,13 @@ function mapShape(
   color: string | undefined,
   fill: string | undefined,
   region: Region,
-  seed: number
+  seed: number,
+  groupId?: string
 ): WhiteboardItem {
   const pts = mapOutlineToWorld(outline, region);
   return {
     id: uid(),
+    groupId,
     kind: "shape",
     points: pts,
     width: shapeWidthWorld(strokeWidth),
@@ -219,10 +221,11 @@ export function shapeWorldItem(
   closed: boolean,
   width: number,
   color?: string,
-  fill?: string
+  fill?: string,
+  groupId?: string
 ): WhiteboardItem {
   const pts = dedupe(resample(outline, 3), 0.4);
-  return { id: uid(), kind: "shape", points: pts, width, closed, color, fill, seed: 0 };
+  return { id: uid(), groupId, kind: "shape", points: pts, width, closed, color, fill, seed: 0 };
 }
 
 /**
@@ -252,18 +255,20 @@ export function shapeFromDrag(kind: ShapeKind, a: Point, b: Point, color?: strin
     return [shapeWorldItem(triangleOutline(spine, { x: x0, y: y1 }, { x: x1, y: y1 }), true, width, color)];
   }
   if (kind === "arrow") {
+    const gid = uid();
     const { shaft, head } = arrowParts(a.x, a.y, b.x, b.y, 1);
     return [
-      shapeWorldItem(shaft, false, width, color),
-      shapeWorldItem(head, true, width, color, color),
+      shapeWorldItem(shaft, false, width, color, undefined, gid),
+      shapeWorldItem(head, true, width, color, color, gid),
     ];
   }
   if (kind === "darrow") {
+    const gid = uid();
     const { shaft, head1, head2 } = doubleArrowParts(a.x, a.y, b.x, b.y, 1);
     return [
-      shapeWorldItem(shaft, false, width, color),
-      shapeWorldItem(head1, true, width, color, color),
-      shapeWorldItem(head2, true, width, color, color),
+      shapeWorldItem(shaft, false, width, color, undefined, gid),
+      shapeWorldItem(head1, true, width, color, color, gid),
+      shapeWorldItem(head2, true, width, color, color, gid),
     ];
   }
   return [];
@@ -301,14 +306,16 @@ export function planToSteps(plan: DrawingPlan, region: Region, seed?: number): P
       } else if (c.type === "triangle") {
         steps.push({ token, kind: "stroke", item: mapTriangle(c, region, seedN), explain: c.explain });
       } else if (c.type === "arrow") {
+        const gid = uid();
         const { shaft, head } = arrowParts(c.x1, c.y1, c.x2, c.y2);
-        steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN), explain: c.explain });
-        steps.push({ token: uid(), kind: "stroke", item: mapShape(head, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN, gid), explain: c.explain });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(head, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN, gid) });
       } else if (c.type === "darrow") {
+        const gid = uid();
         const { shaft, head1, head2 } = doubleArrowParts(c.x1, c.y1, c.x2, c.y2);
-        steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN), explain: c.explain });
-        steps.push({ token: uid(), kind: "stroke", item: mapShape(head1, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
-        steps.push({ token: uid(), kind: "stroke", item: mapShape(head2, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN) });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(shaft, false, c.strokeWidth, c.color, undefined, region, seedN, gid), explain: c.explain });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(head1, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN, gid) });
+        steps.push({ token: uid(), kind: "stroke", item: mapShape(head2, true, c.strokeWidth, c.color, c.color ?? INK, region, seedN, gid) });
       } else if (c.type === "erase") {
         steps.push({ token, kind: "erase", item: mapErase(c.x, c.y, c.width, region, seedN), explain: c.explain });
       } else if (c.type === "pause") {

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { DrawingEngine, liveEngine } from "./DrawingEngine";
 
+import ObjectToolbar from "./ObjectToolbar";
+
 type Modality = "draw" | "shape" | "select" | "pan" | "pinch" | null;
 
 interface PinchState {
@@ -118,17 +120,26 @@ export default function Whiteboard() {
       modeRef.current = "pan";
       return;
     }
+
+    const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
+
     if (tool === "select") {
       modeRef.current = "select";
-      const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
-      if (world) engineRef.current?.startSelection(world, e.altKey ? "lasso" : "ellipse");
+      if (world) {
+        // Try to grab a resize handle or an existing object.
+        // If nothing is hit (empty space click), start a marquee selection instead.
+        const hit = engineRef.current?.startObjectDragOrHandle(world, e.shiftKey);
+        if (!hit) {
+          engineRef.current?.startSelection(world, e.altKey ? "lasso" : "ellipse");
+        }
+      }
       return;
     }
+
     const isShape = tool === "rect" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "darrow" || tool === "triangle";
     if (tool !== "draw" && tool !== "erase" && !isShape) return;
 
     modeRef.current = isShape ? "shape" : "draw";
-    const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
     if (world) {
       if (isShape) engineRef.current?.startShape(world, tool);
       else engineRef.current?.startStroke(world, tool);
@@ -159,12 +170,16 @@ export default function Whiteboard() {
       if (world) engineRef.current?.moveShape(world);
     } else if (modeRef.current === "select") {
       const world = engineRef.current?.screenToWorld(e.clientX, e.clientY, rect);
-      if (world) engineRef.current?.moveSelection(world);
+      if (world) {
+        const dragged = engineRef.current?.moveObjectDragOrHandle(world);
+        if (!dragged) engineRef.current?.moveSelection(world);
+      }
     }
   };
 
   const onPointerEnd = (e: React.PointerEvent, cancel: boolean) => {
     pointersRef.current.delete(e.pointerId);
+    engineRef.current?.endObjectDragOrHandle();
     if (modeRef.current === "draw") {
       if (cancel) engineRef.current?.cancelStroke();
       else engineRef.current?.endStroke();
@@ -217,6 +232,21 @@ export default function Whiteboard() {
         useWhiteboardStore.getState().redo();
         return;
       }
+      if (mod && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        useWhiteboardStore.getState().duplicateSelectedItems();
+        return;
+      }
+      if (mod && e.key === "]") {
+        e.preventDefault();
+        useWhiteboardStore.getState().reorderSelectedItems("front");
+        return;
+      }
+      if (mod && e.key === "[") {
+        e.preventDefault();
+        useWhiteboardStore.getState().reorderSelectedItems("back");
+        return;
+      }
       if (e.key === " ") {
         spaceRef.current = true;
         e.preventDefault();
@@ -224,8 +254,45 @@ export default function Whiteboard() {
       }
       if (e.key === "Escape") {
         useWhiteboardStore.getState().setSelection(null);
+        useWhiteboardStore.getState().selectItems([]);
         return;
       }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const selectedIds = useWhiteboardStore.getState().selectedItemIds;
+        if (selectedIds.length > 0) {
+          useWhiteboardStore.getState().deleteSelectedItems();
+        } else {
+          useWhiteboardStore.getState().undo();
+        }
+        return;
+      }
+
+      const selectedIds = useWhiteboardStore.getState().selectedItemIds;
+      if (selectedIds.length > 0) {
+        const step = e.shiftKey ? 10 : 2;
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          useWhiteboardStore.getState().moveSelectedItems(-step, 0);
+          return;
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          useWhiteboardStore.getState().moveSelectedItems(step, 0);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          useWhiteboardStore.getState().moveSelectedItems(0, -step);
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          useWhiteboardStore.getState().moveSelectedItems(0, step);
+          return;
+        }
+      }
+
       const k = e.key.toLowerCase();
       if (k === "v" || k === "d") setTool("draw");
       else if (k === "e") setTool("erase");
@@ -240,10 +307,6 @@ export default function Whiteboard() {
       else if (k === "0") useWhiteboardStore.getState().resetCamera();
       else if (k === "1") useWhiteboardStore.getState().fitDrawing();
       else if (k === "f") useWhiteboardStore.getState().fitDrawing();
-      else if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        useWhiteboardStore.getState().undo();
-      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === " ") spaceRef.current = false;
@@ -276,6 +339,7 @@ export default function Whiteboard() {
         onContextMenu={(e) => e.preventDefault()}
       />
       {ready && <Hud ready={ready} />}
+      <ObjectToolbar />
       <SubtitleBar />
     </div>
   );

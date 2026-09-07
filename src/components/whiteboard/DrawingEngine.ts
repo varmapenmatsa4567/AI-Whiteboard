@@ -1,7 +1,7 @@
 "use client";
 
 import type { Point } from "@/types/drawing";
-import type { SelectionKind, Tool, WhiteboardItem } from "@/types/whiteboard";
+import type { SelectionKind, Tool, TransformHandle, WhiteboardItem } from "@/types/whiteboard";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { classifyItem, drawSprite, intersectsBox, type Sprite, buildRibbonPath, INK, colorFor } from "@/lib/drawing/renderer";
 import { dedupe, pathLength, resample, revealCut } from "@/lib/drawing/smoothing";
@@ -9,7 +9,7 @@ import { pxPerSecond, speedMultiplier, interStrokeDelayMs, easeInOut } from "@/l
 import { screenToWorld as screenToWorldPoint, visibleWorldRect } from "@/lib/drawing/coordinates";
 import type { PlannedStep } from "@/lib/drawing/commands";
 import { uid, shapeFromDrag, type ShapeKind } from "@/lib/drawing/commands";
-import { polygonFromEllipse } from "@/lib/drawing/selection";
+import { polygonFromEllipse, getItemBBox, getGroupBBox, hitTestItem, hitTestHandle, getHandlePositions, itemsInside, selectionTargetIds, type BBox } from "@/lib/drawing/selection";
 
 const GRID_BASE = 48;
 const SELECTION_COLOR = "#e11d48";
@@ -68,6 +68,8 @@ export class DrawingEngine {
   private pointerStroke: { item: WhiteboardItem; pts: Point[]; pressures: number[] } | null = null;
   private shapeDraft: { tool: ShapeKind; anchor: Point; current: Point } | null = null;
   private selectionDraft: { kind: SelectionKind; anchor: Point; current: Point; path: Point[] } | null = null;
+  private objectDrag: { startPos: Point } | null = null;
+  private handleDrag: { handle: TransformHandle; initialBox: BBox; startPos: Point } | null = null;
 
   private spriteCache = new Map<string, Sprite>();
   private animating = false;
@@ -168,7 +170,8 @@ export class DrawingEngine {
     this.ctx = ctx;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.lastTime = performance.now();
-    this.unsub = useWhiteboardStore.subscribe(() => {
+    this.unsub = useWhiteboardStore.subscribe((_state, prev) => {
+      if (prev && _state.items !== prev.items) this.spriteCache.clear();
       this.needsRender = true;
     });
     this.raf = requestAnimationFrame(this.tick);
@@ -467,7 +470,134 @@ export class DrawingEngine {
       if (Math.hypot(last.x - first.x, last.y - first.y) > 0.01) poly.push(first);
     }
     useWhiteboardStore.getState().setSelection({ kind: d.kind, poly });
+    const boardItems = useWhiteboardStore.getState().items;
+    const enclosed = itemsInside(boardItems, poly);
+
+    // A circle/lasso should replace the current object selection, including
+    // when it finds nothing. Expand every hit through the same rules as a
+    // direct click so an arrow's shaft and head, or a shape and its enclosed
+    // content, never split apart during a region selection.
+    const targetIds = new Set<string>();
+    for (const item of enclosed) {
+      for (const id of selectionTargetIds(boardItems, item)) targetIds.add(id);
+    }
+    useWhiteboardStore.getState().selectItems([...targetIds]);
     this.needsRender = true;
+  }
+
+  // ── Multi-object selection & transform handles ─────────────────────
+
+  startObjectDragOrHandle(world: Point, shiftKey = false): boolean {
+    const { items, selectedItemIds, camera } = useWhiteboardStore.getState();
+    const selectedItems = items.filter((it) => selectedItemIds.includes(it.id));
+    const groupBox = getGroupBBox(selectedItems);
+
+    // 1. Check handle hit on current selection group bounding box
+    if (groupBox && selectedItems.length > 0) {
+      const handleHit = hitTestHandle(groupBox, world, camera.zoom);
+      if (handleHit) {
+        this.handleDrag = {
+          handle: handleHit,
+          initialBox: { ...groupBox },
+          startPos: { ...world },
+        };
+        this.needsRender = true;
+        return true;
+      }
+    }
+
+    // 2. Check hit test on items (topmost first)
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (hitTestItem(item, world, 8 / camera.zoom)) {
+        const targetIds = selectionTargetIds(items, item);
+        if (shiftKey) {
+          for (const tid of targetIds) useWhiteboardStore.getState().toggleSelectItem(tid);
+        } else {
+          if (!targetIds.every((tid) => selectedItemIds.includes(tid))) {
+            useWhiteboardStore.getState().selectItems(targetIds);
+          }
+        }
+        this.objectDrag = { startPos: { ...world } };
+        this.needsRender = true;
+        return true;
+      }
+    }
+
+    // 3. Clicked inside current group bounding box
+    if (groupBox && world.x >= groupBox.x0 && world.x <= groupBox.x1 && world.y >= groupBox.y0 && world.y <= groupBox.y1) {
+      this.objectDrag = { startPos: { ...world } };
+      this.needsRender = true;
+      return true;
+    }
+
+    // 4. Clicked empty space -> deselect all unless holding Shift
+    if (!shiftKey && selectedItemIds.length > 0) {
+      useWhiteboardStore.getState().selectItems([]);
+      this.needsRender = true;
+    }
+    return false;
+  }
+
+  moveObjectDragOrHandle(world: Point): boolean {
+    if (this.handleDrag) {
+      const { handle, initialBox, startPos } = this.handleDrag;
+      const dx = world.x - startPos.x;
+      const dy = world.y - startPos.y;
+      const origW = Math.max(1, initialBox.x1 - initialBox.x0);
+      const origH = Math.max(1, initialBox.y1 - initialBox.y0);
+
+      let anchorX = (initialBox.x0 + initialBox.x1) / 2;
+      let anchorY = (initialBox.y0 + initialBox.y1) / 2;
+      let newW = origW;
+      let newH = origH;
+
+      if (handle.includes("e")) {
+        anchorX = initialBox.x0;
+        newW = Math.max(8, origW + dx);
+      } else if (handle.includes("w")) {
+        anchorX = initialBox.x1;
+        newW = Math.max(8, origW - dx);
+      }
+
+      if (handle.includes("s")) {
+        anchorY = initialBox.y0;
+        newH = Math.max(8, origH + dy);
+      } else if (handle.includes("n")) {
+        anchorY = initialBox.y1;
+        newH = Math.max(8, origH - dy);
+      }
+
+      const scaleX = newW / origW;
+      const scaleY = newH / origH;
+
+      useWhiteboardStore.getState().resizeSelectedItems(scaleX, scaleY, { x: anchorX, y: anchorY }, false);
+      this.needsRender = true;
+      return true;
+    }
+
+    if (this.objectDrag) {
+      const dx = world.x - this.objectDrag.startPos.x;
+      const dy = world.y - this.objectDrag.startPos.y;
+      useWhiteboardStore.getState().moveSelectedItems(dx, dy, false);
+      this.objectDrag.startPos = { ...world };
+      this.needsRender = true;
+      return true;
+    }
+
+    return false;
+  }
+
+  endObjectDragOrHandle(): boolean {
+    if (this.handleDrag || this.objectDrag) {
+      this.handleDrag = null;
+      this.objectDrag = null;
+      const { items, history } = useWhiteboardStore.getState();
+      useWhiteboardStore.setState({ history: [...history, items].slice(-120), future: [] });
+      this.needsRender = true;
+      return true;
+    }
+    return false;
   }
 
   // ── Main loop ───────────────────────────────────────────────────────
@@ -732,7 +862,64 @@ export class DrawingEngine {
 
   /** Dashed accent marquee for the live drag and any committed selection. */
   private drawSelection(ctx: CanvasRenderingContext2D): void {
-    const { camera } = useWhiteboardStore.getState();
+    const { camera, items, selectedItemIds } = useWhiteboardStore.getState();
+
+    // 1. Draw group selection bounding box & handles
+    if (selectedItemIds.length > 0) {
+      const selectedItems = items.filter((it) => selectedItemIds.includes(it.id));
+      const box = getGroupBBox(selectedItems);
+      if (box) {
+        ctx.save();
+        ctx.strokeStyle = "#0284c7";
+        ctx.lineWidth = 1.8 / camera.zoom;
+        ctx.setLineDash([5 / camera.zoom, 4 / camera.zoom]);
+        ctx.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+        ctx.fillStyle = "rgba(2, 132, 199, 0.04)";
+        ctx.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+        ctx.restore();
+
+        // Trace the actual geometry of every selected item. A bounding box on
+        // its own makes a selected ellipse or arrow look like only its fill
+        // was selected, even though its outline and contents will move too.
+        if (selectedItems.length > 1) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(2, 132, 199, 0.35)";
+          ctx.lineWidth = 1 / camera.zoom;
+          ctx.setLineDash([3 / camera.zoom, 3 / camera.zoom]);
+          for (const item of selectedItems) {
+            if (item.kind === "text") {
+              const ibox = getItemBBox(item);
+              if (ibox) ctx.strokeRect(ibox.x0, ibox.y0, ibox.x1 - ibox.x0, ibox.y1 - ibox.y0);
+              continue;
+            }
+            if (item.points.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(item.points[0].x, item.points[0].y);
+            for (let i = 1; i < item.points.length; i++) ctx.lineTo(item.points[i].x, item.points[i].y);
+            if (item.kind === "shape" && item.closed) ctx.closePath();
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        const handles = getHandlePositions(box);
+        const handleR = 5 / camera.zoom;
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#0284c7";
+        ctx.lineWidth = 1.6 / camera.zoom;
+        ctx.setLineDash([]);
+        for (const hp of Object.values(handles)) {
+          ctx.beginPath();
+          ctx.arc(hp.x, hp.y, handleR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    // 2. Draw group selection polygon
     let poly: Point[] | null = null;
     const d = this.selectionDraft;
     if (d) {

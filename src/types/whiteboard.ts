@@ -11,6 +11,8 @@ export type Tool = "draw" | "erase" | "pan" | "select" | "rect" | "ellipse" | "l
 
 export type SelectionKind = "ellipse" | "lasso";
 
+export type TransformHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
 /** A user-circled region on the board, expressed as a world-space polygon. */
 export interface Selection {
   kind: SelectionKind;
@@ -26,6 +28,7 @@ export type DrawingSpeed = "slow" | "normal" | "fast";
 export type WhiteboardItem =
   | {
       id: string;
+      groupId?: string;
       kind: "stroke";
       points: Point[];
       width: number;
@@ -36,6 +39,7 @@ export type WhiteboardItem =
     }
   | {
       id: string;
+      groupId?: string;
       kind: "erase";
       points: Point[];
       width: number;
@@ -43,6 +47,7 @@ export type WhiteboardItem =
     }
   | {
       id: string;
+      groupId?: string;
       kind: "text";
       x: number;
       y: number;
@@ -52,6 +57,7 @@ export type WhiteboardItem =
     }
   | {
       id: string;
+      groupId?: string;
       kind: "shape";
       /** Outline polyline of the shape (closed for rect/ellipse/triangle). */
       points: Point[];

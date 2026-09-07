@@ -26,11 +26,29 @@ interface WhiteboardState {
   subtitle: string | null;
   selection: Selection | null;
   selectionContext: string[];
+  selectedItemId: string | null;
+  selectedItemIds: string[];
 
   addItems: (items: WhiteboardItem[], record?: boolean) => void;
   undo: () => void;
   redo: () => void;
   clearCanvas: () => void;
+
+  selectItem: (id: string | null) => void;
+  selectItems: (ids: string[]) => void;
+  toggleSelectItem: (id: string) => void;
+  deleteSelectedItem: () => void;
+  deleteSelectedItems: () => void;
+  duplicateSelectedItem: () => void;
+  duplicateSelectedItems: () => void;
+  updateSelectedItem: (updates: Partial<WhiteboardItem>) => void;
+  updateSelectedItems: (updates: Partial<WhiteboardItem>) => void;
+  moveSelectedItem: (dx: number, dy: number, record?: boolean) => void;
+  moveSelectedItems: (dx: number, dy: number, record?: boolean) => void;
+  resizeSelectedItem: (scaleX: number, scaleY: number, origin: { x: number; y: number }, record?: boolean) => void;
+  resizeSelectedItems: (scaleX: number, scaleY: number, origin: { x: number; y: number }, record?: boolean) => void;
+  reorderSelectedItem: (direction: "front" | "back") => void;
+  reorderSelectedItems: (direction: "front" | "back") => void;
 
   setPlanStep: (planStep: WhiteboardState["planStep"]) => void;
   setSubtitle: (subtitle: string | null) => void;
@@ -72,6 +90,155 @@ export const useWhiteboardStore = create<WhiteboardState>()((set, get) => ({
   subtitle: null,
   selection: null,
   selectionContext: [],
+  selectedItemId: null,
+  selectedItemIds: [],
+
+  selectItems: (ids) => set({ selectedItemIds: ids, selectedItemId: ids.length === 1 ? ids[0] : null }),
+  selectItem: (id) => get().selectItems(id ? [id] : []),
+  toggleSelectItem: (id) => {
+    const { selectedItemIds } = get();
+    const setIds = new Set(selectedItemIds);
+    if (setIds.has(id)) setIds.delete(id);
+    else setIds.add(id);
+    const next = Array.from(setIds);
+    get().selectItems(next);
+  },
+
+  deleteSelectedItems: () => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0) return;
+    const deleteSet = new Set(selectedItemIds);
+    const next = items.filter((it) => !deleteSet.has(it.id));
+    if (next.length === items.length) return;
+    set({
+      items: next,
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+      selectedItemIds: [],
+      selectedItemId: null,
+    });
+  },
+  deleteSelectedItem: () => get().deleteSelectedItems(),
+
+  duplicateSelectedItems: () => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0) return;
+    const targetSet = new Set(selectedItemIds);
+    const targets = items.filter((it) => targetSet.has(it.id));
+    if (targets.length === 0) return;
+    const offset = 24;
+    const newIds: string[] = [];
+    const clones: WhiteboardItem[] = targets.map((target) => {
+      const newId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      newIds.push(newId);
+      if (target.kind === "text") {
+        return { ...target, id: newId, x: target.x + offset, y: target.y + offset };
+      }
+      return {
+        ...target,
+        id: newId,
+        points: target.points.map((p) => ({ x: p.x + offset, y: p.y + offset })),
+      } as WhiteboardItem;
+    });
+
+    set({
+      items: [...items, ...clones],
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+      selectedItemIds: newIds,
+      selectedItemId: newIds.length === 1 ? newIds[0] : null,
+    });
+  },
+  duplicateSelectedItem: () => get().duplicateSelectedItems(),
+
+  updateSelectedItems: (updates) => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0) return;
+    const targetSet = new Set(selectedItemIds);
+    const next = items.map((it) => {
+      if (!targetSet.has(it.id)) return it;
+      return { ...it, ...updates } as WhiteboardItem;
+    });
+    set({
+      items: next,
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+    });
+  },
+  updateSelectedItem: (updates) => get().updateSelectedItems(updates),
+
+  moveSelectedItems: (dx, dy, record = true) => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0 || (dx === 0 && dy === 0)) return;
+    const targetSet = new Set(selectedItemIds);
+    const next = items.map((it) => {
+      if (!targetSet.has(it.id)) return it;
+      if (it.kind === "text") {
+        return { ...it, x: it.x + dx, y: it.y + dy };
+      }
+      return {
+        ...it,
+        points: it.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      };
+    });
+    if (!record) {
+      set({ items: next });
+      return;
+    }
+    set({
+      items: next,
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+    });
+  },
+  moveSelectedItem: (dx, dy, record = true) => get().moveSelectedItems(dx, dy, record),
+
+  resizeSelectedItems: (scaleX, scaleY, origin, record = true) => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0) return;
+    const targetSet = new Set(selectedItemIds);
+    const next = items.map((it) => {
+      if (!targetSet.has(it.id)) return it;
+      if (it.kind === "text") {
+        const nx = origin.x + (it.x - origin.x) * scaleX;
+        const ny = origin.y + (it.y - origin.y) * scaleY;
+        const newFontSize = Math.max(8, Math.round(it.fontSize * Math.abs(scaleY)));
+        return { ...it, x: nx, y: ny, fontSize: newFontSize };
+      }
+      return {
+        ...it,
+        points: it.points.map((p) => ({
+          x: origin.x + (p.x - origin.x) * scaleX,
+          y: origin.y + (p.y - origin.y) * scaleY,
+        })),
+      };
+    });
+    if (!record) {
+      set({ items: next });
+      return;
+    }
+    set({
+      items: next,
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+    });
+  },
+  resizeSelectedItem: (scaleX, scaleY, origin, record = true) => get().resizeSelectedItems(scaleX, scaleY, origin, record),
+
+  reorderSelectedItems: (direction) => {
+    const { items, selectedItemIds, history } = get();
+    if (selectedItemIds.length === 0) return;
+    const targetSet = new Set(selectedItemIds);
+    const selected = items.filter((it) => targetSet.has(it.id));
+    const unselected = items.filter((it) => !targetSet.has(it.id));
+    const next = direction === "front" ? [...unselected, ...selected] : [...selected, ...unselected];
+    set({
+      items: next,
+      history: [...history, items].slice(-MAX_HISTORY),
+      future: [],
+    });
+  },
+  reorderSelectedItem: (direction) => get().reorderSelectedItems(direction),
 
   setPlanStep: (planStep) => set({ planStep }),
   setSubtitle: (subtitle) => set({ subtitle }),
