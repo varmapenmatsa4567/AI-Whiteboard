@@ -6,8 +6,11 @@ import Whiteboard from "@/components/whiteboard/Whiteboard";
 import AIInput from "@/components/whiteboard/AIInput";
 import AIPanel from "@/components/whiteboard/AIPanel";
 import SelectionPopover from "@/components/whiteboard/SelectionPopover";
+import { useWhiteboardPersistence } from "@/lib/store/useWhiteboardPersistence";
 
 export default function Home() {
+  useWhiteboardPersistence();
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-white text-slate-900 antialiased">
       <TopBar />

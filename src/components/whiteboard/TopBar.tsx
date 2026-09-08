@@ -3,6 +3,7 @@
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
 import { AiStatusBadge } from "./useAskAI";
 import { PanelIcon, CloseIcon } from "./icons";
+import BoardSwitcher from "./BoardSwitcher";
 
 export default function TopBar() {
   const panelOpen = useWhiteboardStore((s) => s.panelOpen);
@@ -24,7 +25,9 @@ export default function TopBar() {
             Describe it — the AI draws it on the board
           </span>
         </div>
-        <div className="ml-2 hidden items-center gap-2 md:flex">
+        <div className="ml-2 flex items-center gap-2">
+          <div className="h-4 w-px bg-slate-200" />
+          <BoardSwitcher />
           <div className="h-4 w-px bg-slate-200" />
           <AiStatusBadge />
         </div>

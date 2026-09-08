@@ -79,3 +79,22 @@ export interface ChatMessage {
   provider?: string;
   ts: number;
 }
+
+/** Lightweight metadata for a saved whiteboard, used in the board list. */
+export interface WhiteboardMeta {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * The persisted snapshot of a single whiteboard.
+ * Only user-meaningful state is saved — transient UI state (tool,
+ * selection, viewport, history) is intentionally excluded.
+ */
+export interface StoredWhiteboard extends WhiteboardMeta {
+  items: WhiteboardItem[];
+  camera: Camera;
+  chat: ChatMessage[];
+}
