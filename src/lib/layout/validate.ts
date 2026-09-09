@@ -8,11 +8,14 @@ export interface LayoutIssue {
 
 export function validateLayout(result: LayoutResult): LayoutIssue[] {
   const issues: LayoutIssue[] = [];
+  const nodeIds = new Set(result.nodes.map((node) => node.id));
+
   for (const node of result.nodes) {
     if (![node.rect.x, node.rect.y, node.rect.width, node.rect.height].every(Number.isFinite) || node.rect.width <= 0 || node.rect.height <= 0) {
       issues.push({ code: "invalid-node", message: `Node ${node.id} has invalid geometry.` });
     }
   }
+
   for (let i = 0; i < result.nodes.length; i++) {
     for (let j = i + 1; j < result.nodes.length; j++) {
       if (rectsOverlap(inflateRect(result.nodes[i].rect, 8), result.nodes[j].rect)) {
@@ -20,11 +23,17 @@ export function validateLayout(result: LayoutResult): LayoutIssue[] {
       }
     }
   }
+
   for (const edge of result.edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+      issues.push({ code: "invalid-edge", message: `Edge ${edge.id} references a missing node.` });
+      continue;
+    }
     if (edge.points.length < 2 || edge.points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) {
       issues.push({ code: "invalid-edge", message: `Edge ${edge.id} has invalid routing.` });
       continue;
     }
+
     for (const node of result.nodes) {
       if (node.id === edge.source || node.id === edge.target) continue;
       if (pointsCrossRect(edge.points, node.rect, 4)) {
@@ -32,12 +41,16 @@ export function validateLayout(result: LayoutResult): LayoutIssue[] {
       }
     }
   }
+
   for (const group of result.groups) {
     for (const id of group.children) {
       const node = result.nodes.find((n) => n.id === id);
-      if (!node || !contains(group.rect, node.rect)) issues.push({ code: "group-overflow", message: `Group ${group.id} does not contain ${id}.` });
+      if (!node || !contains(group.rect, node.rect)) {
+        issues.push({ code: "group-overflow", message: `Group ${group.id} does not contain ${id}.` });
+      }
     }
   }
+
   return issues;
 }
 
