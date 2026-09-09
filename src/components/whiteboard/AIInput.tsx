@@ -48,27 +48,42 @@ export default function AIInput() {
 
   const drawPasted = async () => {
     if (drawingBusy || !chatGptResponse.trim()) return;
+    const input = chatGptResponse.trim();
+
     try {
-      // The ChatGPT button now requests semantic JSON. Convert that semantic
-      // model through the deterministic layout engine before handing it to the
-      // existing drawing playback path. Keep the legacy fallback for older
-      // command-based ChatGPT responses.
-      let drawingInput = chatGptResponse.trim();
+      // First try the new semantic format. Once it parses successfully, do NOT
+      // fall back to the legacy parser if layout fails: that would hide the
+      // actual layout error behind "missing commands".
       try {
-        const semantic = parseSemanticDiagram(drawingInput);
+        const semantic = parseSemanticDiagram(input);
         const plan = semanticToDrawingPlan(semantic);
-        drawingInput = JSON.stringify(plan);
-      } catch {
-        // Not semantic JSON; let the existing legacy parser handle it.
+        const ok = await askChatGPT(JSON.stringify(plan));
+        if (ok) {
+          setChatGptResponse("");
+          setOpen(false);
+        }
+        return;
+      } catch (semanticError) {
+        // Only continue to the legacy parser when this is genuinely not a
+        // semantic diagram. If it looks like semantic JSON, surface the real
+        // error instead of silently treating it as a legacy drawing plan.
+        const looksSemantic = /["'](?:nodes|edges|direction)["']\s*:/.test(input);
+        if (looksSemantic) {
+          const message = semanticError instanceof Error ? semanticError.message : String(semanticError);
+          useWhiteboardStore.getState().setError(`Semantic diagram could not be drawn. ${message}`);
+          return;
+        }
       }
 
-      const ok = await askChatGPT(drawingInput);
+      // Backward compatibility for older ChatGPT responses containing
+      // {"description":"...","commands":[...]}.
+      const ok = await askChatGPT(input);
       if (ok) {
         setChatGptResponse("");
         setOpen(false);
       }
     } catch {
-      /* error message already surfaced via store */
+      // askChatGPT already surfaces the parser error through the store.
     }
   };
 
@@ -88,56 +103,24 @@ export default function AIInput() {
                 Ask ChatGPT with the prompt, then paste its semantic JSON answer here. The whiteboard handles layout automatically — no API key needed.
               </p>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Close"
-            >
+            <button onClick={() => setOpen(false)} className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
               <CloseIcon width={16} height={16} />
             </button>
           </div>
 
           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                Step 1 · Copy this prompt into ChatGPT
-              </span>
-              <button
-                onClick={copyPrompt}
-                className="rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-slate-700"
-              >
-                {copied ? "Copied ✓" : "Copy prompt"}
-              </button>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Step 1 · Copy this prompt into ChatGPT</span>
+              <button onClick={copyPrompt} className="rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-slate-700">{copied ? "Copied ✓" : "Copy prompt"}</button>
             </div>
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              rows={2}
-              readOnly
-              placeholder="Type what you want to draw in the box below, then copy the generated prompt."
-              className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 outline-none focus:border-slate-400"
-            />
-            <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
-              {promptText.slice(0, 180)}…
-            </p>
+            <textarea value={value} onChange={(e) => setValue(e.target.value)} rows={2} readOnly placeholder="Type what you want to draw in the box below, then copy the generated prompt." className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 outline-none focus:border-slate-400" />
+            <p className="mt-1.5 text-[11px] leading-snug text-slate-400">{promptText.slice(0, 180)}…</p>
           </div>
 
           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-              Step 2 · Paste ChatGPT’s semantic JSON response
-            </span>
-            <textarea
-              value={chatGptResponse}
-              onChange={(e) => setChatGptResponse(e.target.value)}
-              rows={7}
-              placeholder='{"description":"...","direction":"top-to-bottom","nodes":[...],"edges":[...],"groups":[]}'
-              className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white p-2 font-mono text-xs text-slate-800 outline-none focus:border-slate-400"
-            />
-            <button
-              onClick={drawPasted}
-              disabled={drawingBusy || !chatGptResponse.trim()}
-              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400"
-            >
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Step 2 · Paste ChatGPT’s semantic JSON response</span>
+            <textarea value={chatGptResponse} onChange={(e) => setChatGptResponse(e.target.value)} rows={7} placeholder='{"description":"...","direction":"top-to-bottom","nodes":[...],"edges":[...],"groups":[]}' className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white p-2 font-mono text-xs text-slate-800 outline-none focus:border-slate-400" />
+            <button onClick={drawPasted} disabled={drawingBusy || !chatGptResponse.trim()} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400">
               <SparkIcon width={16} height={16} />
               {drawingBusy ? "Drawing…" : "Draw it"}
             </button>
@@ -147,111 +130,35 @@ export default function AIInput() {
 
       {selectionContext.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
-          <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            In context
-          </span>
+          <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">In context</span>
           {selectionContext.map((label, i) => (
-            <span
-              key={`${label}_${i}`}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
-            >
+            <span key={`${label}_${i}`} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
               {label}
-              <button
-                type="button"
-                onClick={() => removeSelectionContext(i)}
-                className="text-slate-400 transition-colors hover:text-slate-600"
-                aria-label={`Remove "${label}" from context`}
-                title="Remove from context"
-              >
-                <CloseIcon width={11} height={11} />
-              </button>
+              <button type="button" onClick={() => removeSelectionContext(i)} className="text-slate-400 transition-colors hover:text-slate-600" aria-label={`Remove "${label}" from context`} title="Remove from context"><CloseIcon width={11} height={11} /></button>
             </span>
           ))}
-          {selectionContext.length > 1 && (
-            <button
-              type="button"
-              onClick={clearSelectionContext}
-              className="ml-auto text-[11px] font-medium text-slate-400 transition-colors hover:text-slate-600"
-            >
-              Clear all
-            </button>
-          )}
+          {selectionContext.length > 1 && <button type="button" onClick={clearSelectionContext} className="ml-auto text-[11px] font-medium text-slate-400 transition-colors hover:text-slate-600">Clear all</button>}
         </div>
       )}
 
-      <form
-        onSubmit={submit}
-        className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur"
-      >
-        <button
-          type="button"
-          onClick={toggle}
-          className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
-            mode === "ask" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"
-          }`}
-          title="Ask the AI with your provider"
-        >
-          Ask AI
-        </button>
-        <button
-          type="button"
-          onClick={toggle}
-          className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
-            mode === "chatgpt" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"
-          }`}
-          title="Paste a response you got from ChatGPT"
-        >
-          ChatGPT
-        </button>
+      <form onSubmit={submit} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+        <button type="button" onClick={toggle} className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${mode === "ask" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`} title="Ask the AI with your provider">Ask AI</button>
+        <button type="button" onClick={toggle} className={`rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${mode === "chatgpt" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"}`} title="Paste a response you got from ChatGPT">ChatGPT</button>
 
         {mode === "ask" ? (
           <>
             <SparkIcon width={16} height={16} className="ml-1 shrink-0 text-slate-400" />
-            <input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              disabled={drawingBusy}
-              placeholder={
-                drawingBusy
-                  ? "The AI is drawing…"
-                  : 'Ask the AI to draw: "Draw a car", "Explain binary search"…'
-              }
-              className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder-slate-400 outline-none disabled:cursor-not-allowed"
-            />
+            <input value={value} onChange={(e) => setValue(e.target.value)} disabled={drawingBusy} placeholder={drawingBusy ? "The AI is drawing…" : 'Ask the AI to draw: "Draw a car", "Explain binary search"…'} className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder-slate-400 outline-none disabled:cursor-not-allowed" />
             {drawingBusy ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700"
-                title="Stop drawing"
-              >
-                <StopIcon width={16} height={16} />
-              </button>
+              <button type="button" onClick={stop} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700" title="Stop drawing"><StopIcon width={16} height={16} /></button>
             ) : (
-              <button
-                type="submit"
-                disabled={!value.trim()}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400"
-                title="Ask the AI"
-              >
-                <SendIcon width={16} height={16} />
-              </button>
+              <button type="submit" disabled={!value.trim()} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400" title="Ask the AI"><SendIcon width={16} height={16} /></button>
             )}
           </>
         ) : (
           <>
-            <input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="Describe something to draw (used to build the ChatGPT prompt)"
-              className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder-slate-400 outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setOpen((o) => !o)}
-              disabled={!value.trim()}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400"
-            >
+            <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="Describe something to draw (used to build the ChatGPT prompt)" className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder-slate-400 outline-none" />
+            <button type="button" onClick={() => setOpen((o) => !o)} disabled={!value.trim()} className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400">
               <SparkIcon width={16} height={16} />
               {open ? "Close" : "Get prompt"}
             </button>
