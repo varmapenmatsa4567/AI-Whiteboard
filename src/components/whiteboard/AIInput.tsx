@@ -70,7 +70,7 @@ export default function AIInput() {
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-slate-800">Paste what ChatGPT gave you</h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Ask ChatGPT with the prompt, then paste its JSON answer here. It draws directly — no API key needed.
+                Ask ChatGPT with the prompt, then paste its semantic JSON answer here. The whiteboard handles layout automatically — no API key needed.
               </p>
             </div>
             <button
@@ -109,13 +109,13 @@ export default function AIInput() {
 
           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-              Step 2 · Paste ChatGPT’s JSON response
+              Step 2 · Paste ChatGPT’s semantic JSON response
             </span>
             <textarea
               value={chatGptResponse}
               onChange={(e) => setChatGptResponse(e.target.value)}
               rows={7}
-              placeholder='{"description": "...", "commands": [...]}'
+              placeholder='{"description":"...","direction":"top-to-bottom","nodes":[...],"edges":[...],"groups":[]}'
               className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white p-2 font-mono text-xs text-slate-800 outline-none focus:border-slate-400"
             />
             <button
@@ -134,7 +134,7 @@ export default function AIInput() {
         <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
           <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             In context
-          </span>
+n          </span>
           {selectionContext.map((label, i) => (
             <span
               key={`${label}_${i}`}
