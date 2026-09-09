@@ -42,10 +42,22 @@ export const SemanticDiagramSchema = z.object({
 export type SemanticDiagramInput = z.input<typeof SemanticDiagramSchema>;
 export type SemanticDiagramOutput = z.output<typeof SemanticDiagramSchema>;
 
+/** Accept normal JSON plus common ChatGPT copy/paste wrappers. */
 export function parseSemanticDiagram(raw: string): SemanticDiagramOutput {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   let value: unknown;
-  try { value = JSON.parse(raw); }
-  catch { throw new Error("AI returned invalid JSON for the semantic diagram."); }
+
+  try {
+    value = JSON.parse(cleaned);
+    // Some copy/paste paths wrap the whole object in a JSON string.
+    if (typeof value === "string") {
+      const nested = value.trim();
+      if (nested.startsWith("{")) value = JSON.parse(nested);
+    }
+  } catch {
+    throw new Error("AI returned invalid JSON for the semantic diagram.");
+  }
+
   const parsed = SemanticDiagramSchema.safeParse(value);
   if (!parsed.success) throw new Error(`Invalid semantic diagram: ${parsed.error.issues[0]?.message ?? "schema validation failed"}`);
   return parsed.data;
