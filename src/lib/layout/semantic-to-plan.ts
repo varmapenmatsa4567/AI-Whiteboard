@@ -12,15 +12,11 @@ export function semanticToDrawingPlan(diagram: SemanticDiagram): DrawingPlan {
   const layout = layoutDiagram(diagram, { originX: 0, originY: 0 });
   const issues = validateLayout(layout);
 
-  // Invalid geometry and node collisions are fatal. An edge crossing warning is
-  // not: dense semantic graphs can legitimately need a connector to pass near
-  // another card, and rejecting the entire diagram makes a valid semantic
-  // response impossible to draw. The router still attempts to avoid obstacles.
-  const errors = issues.filter((issue) =>
-    ["invalid-node", "invalid-edge", "node-overlap"].includes(issue.code)
-  );
-  if (errors.length) {
-    throw new Error(`Layout validation failed: ${errors.map((e) => e.message).join("; ")}`);
+  // A semantic diagram is only accepted when the deterministic geometry pass
+  // produces a valid result. The router is responsible for avoiding unrelated
+  // nodes; silently accepting an invalid route would reintroduce visual overlap.
+  if (issues.length) {
+    throw new Error(`Layout validation failed: ${issues.map((issue) => issue.message).join("; ")}`);
   }
 
   const allRects = [...layout.nodes.map((n) => n.rect), ...layout.groups.map((g) => g.rect)];
@@ -157,9 +153,6 @@ function wrapText(text: string, fontSize: number, maxWidth: number, lineHeight: 
 
   if (current) lines.push(current);
 
-  // A single long token can still exceed the available width. Break it into
-  // character chunks so even URLs, identifiers, and long technical terms stay
-  // inside the card instead of escaping its boundary.
   return lines.flatMap((line) => {
     if (measureText(line, { fontSize, lineHeight }, maxWidth).width <= maxWidth) return [line];
     const chunks: string[] = [];
