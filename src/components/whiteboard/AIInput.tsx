@@ -134,7 +134,7 @@ export default function AIInput() {
         <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur">
           <span className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             In context
-n          </span>
+          </span>
           {selectionContext.map((label, i) => (
             <span
               key={`${label}_${i}`}
