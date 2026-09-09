@@ -16,7 +16,10 @@ class LayoutAwareDrawingAI implements DrawingAI {
   constructor(private readonly inner: DrawingAI) { this.id = inner.id; }
   async generateDrawing(request: DrawingRequestContext): Promise<DrawingPlan> {
     const plan = await this.inner.generateDrawing(request);
-    return stabilizeLegacyPlan(plan);
+    // RealDrawingAI already performs semantic planning + deterministic layout.
+    // The mock remains command-oriented for offline demos, so keep the legacy
+    // safety pass for it until mock templates are migrated as well.
+    return this.inner.id === "openai" ? plan : stabilizeLegacyPlan(plan);
   }
 }
 
