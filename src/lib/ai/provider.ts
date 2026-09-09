@@ -2,24 +2,24 @@ import type { DrawingAI, DrawingPlan, DrawingRequestContext } from "@/types/draw
 import { MockDrawingAI } from "./mock-drawing-ai";
 import { RealDrawingAI } from "./real-drawing-ai";
 import { stabilizeLegacyPlan } from "../layout/legacy-plan-layout";
+import { planToSemantic } from "../layout/model";
+import { semanticToDrawingPlan } from "../layout/semantic-to-plan";
 
 export type ProviderId = "auto" | "mock" | "openai";
-
-function resolvedProvider(): ProviderId {
-  const raw = (process.env.AI_PROVIDER ?? "auto").toLowerCase();
-  if (raw === "mock" || raw === "openai") return raw;
-  return "auto";
-}
+function resolvedProvider(): ProviderId { const raw = (process.env.AI_PROVIDER ?? "auto").toLowerCase(); return raw === "mock" || raw === "openai" ? raw : "auto"; }
 
 class LayoutAwareDrawingAI implements DrawingAI {
   readonly id: string;
   constructor(private readonly inner: DrawingAI) { this.id = inner.id; }
   async generateDrawing(request: DrawingRequestContext): Promise<DrawingPlan> {
     const plan = await this.inner.generateDrawing(request);
-    // RealDrawingAI already performs semantic planning + deterministic layout.
-    // The mock remains command-oriented for offline demos, so keep the legacy
-    // safety pass for it until mock templates are migrated as well.
-    return this.inner.id === "openai" ? plan : stabilizeLegacyPlan(plan);
+    if (this.inner.id === "openai") return plan;
+    const semantic = planToSemantic(plan);
+    if (semantic) {
+      try { return semanticToDrawingPlan(semantic, request.region); }
+      catch { /* keep the offline template if it is not safely convertible */ }
+    }
+    return stabilizeLegacyPlan(plan);
   }
 }
 
