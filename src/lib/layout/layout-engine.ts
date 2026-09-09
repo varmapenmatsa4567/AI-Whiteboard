@@ -39,8 +39,8 @@ export function layoutDiagram(diagram: SemanticDiagram, options: LayoutOptions =
   const edges: LayoutEdge[] = diagram.edges.flatMap((edge) => {
     const source = nodes.find((n) => n.id === edge.source); const target = nodes.find((n) => n.id === edge.target);
     if (!source || !target) return [];
-    let points = orthogonalRoute(source.rect, target.rect);
     const obstacles = nodes.filter((n) => n.id !== source.id && n.id !== target.id).map((n) => n.rect);
+    let points = orthogonalRoute(source.rect, target.rect, 40);
     if (obstacles.some((o) => pointsCrossRect(points, o, 8))) points = rerouteAroundObstacles(source.rect, target.rect, obstacles);
     return [{ ...edge, points }];
   });
@@ -83,8 +83,23 @@ function relaxCollisions(nodes: LaidOutNode[]): void {
 }
 
 function rerouteAroundObstacles(source: Rect, target: Rect, obstacles: Rect[]): { x: number; y: number }[] {
-  const base = orthogonalRoute(source, target, 40); const sc = { x: source.x + source.width / 2, y: source.y + source.height / 2 }; const tc = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
-  const candidates = [[sc.x, Math.min(source.y, target.y) - 60, tc.x, Math.min(source.y, target.y) - 60], [sc.x, Math.max(source.y + source.height, target.y + target.height) + 60, tc.x, Math.max(source.y + source.height, target.y + target.height) + 60]];
-  for (const [sx, sy, tx, ty] of candidates) { const points = [sc, { x: sx, y: sy }, { x: tx, y: ty }, tc]; if (!obstacles.some((o) => pointsCrossRect(points, o, 8))) return points; }
+  const base = orthogonalRoute(source, target, 40);
+  const sc = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
+  const tc = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+  const all = [source, target, ...obstacles];
+  const minY = Math.min(...all.map((r) => r.y)) - 80;
+  const maxY = Math.max(...all.map((r) => r.y + r.height)) + 80;
+  const minX = Math.min(...all.map((r) => r.x)) - 80;
+  const maxX = Math.max(...all.map((r) => r.x + r.width)) + 80;
+  const candidates = [
+    [sc.x, minY, tc.x, minY],
+    [sc.x, maxY, tc.x, maxY],
+    [minX, sc.y, minX, tc.y],
+    [maxX, sc.y, maxX, tc.y],
+  ];
+  for (const [sx, sy, tx, ty] of candidates) {
+    const points = [sc, { x: sx, y: sy }, { x: tx, y: ty }, tc];
+    if (!obstacles.some((o) => pointsCrossRect(points, o, 8))) return points;
+  }
   return base;
 }
