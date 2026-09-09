@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useAskAI, buildChatGPTPrompt } from "./useAskAI";
 import { useWhiteboardStore } from "@/lib/store/whiteboard-store";
+import { parseSemanticDiagram } from "@/lib/layout/semantic-schema";
+import { semanticToDrawingPlan } from "@/lib/layout/semantic-to-plan";
 import { SendIcon, StopIcon, SparkIcon, CloseIcon } from "./icons";
 
 export default function AIInput() {
@@ -47,7 +49,20 @@ export default function AIInput() {
   const drawPasted = async () => {
     if (drawingBusy || !chatGptResponse.trim()) return;
     try {
-      const ok = await askChatGPT(chatGptResponse);
+      // The ChatGPT button now requests semantic JSON. Convert that semantic
+      // model through the deterministic layout engine before handing it to the
+      // existing drawing playback path. Keep the legacy fallback for older
+      // command-based ChatGPT responses.
+      let drawingInput = chatGptResponse.trim();
+      try {
+        const semantic = parseSemanticDiagram(drawingInput);
+        const plan = semanticToDrawingPlan(semantic);
+        drawingInput = JSON.stringify(plan);
+      } catch {
+        // Not semantic JSON; let the existing legacy parser handle it.
+      }
+
+      const ok = await askChatGPT(drawingInput);
       if (ok) {
         setChatGptResponse("");
         setOpen(false);
