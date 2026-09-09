@@ -187,47 +187,69 @@ export const EXAMPLES = [
 ];
 
 /**
- * A ready-to-paste prompt for ChatGPT that produces the JSON this app can draw.
- * The user copies this, gets an answer from ChatGPT, and pastes the JSON back.
+ * A ready-to-paste prompt for ChatGPT that produces the semantic diagram JSON
+ * consumed by the whiteboard layout engine. ChatGPT describes WHAT belongs in
+ * the diagram; the application decides positions, sizes, wrapping, collisions,
+ * and connector routing.
  */
 export function buildChatGPTPrompt(prompt: string, selectionContext: string[] = []): string {
   const lines: string[] = [];
-  lines.push(`You are a whiteboard drawing planner. Translate the user's request into a JSON object of drawing commands that a program will replay as hand-drawn whiteboard strokes. Do NOT output images, code, SVGs, markdown fences, or any text other than the JSON object.`);
-  lines.push(``);
-  lines.push(`Each request draws on a fresh blank sheet of an infinite whiteboard. The app reserves an empty area for your drawing, so it will never overlap anything already on the board — never redraw existing content. Keep your picture nicely centered on your sheet with a modest margin around the edges so nothing is clipped, and keep labels small enough to fit comfortably (fontSize 18–34), spaced so they never collide with each other or your own shapes.`);
-  lines.push(``);
-  lines.push(`Use colors: include an optional "color" field (full six-digit hex, e.g. "#e11d48") on strokes and labels to add meaning (outlines dark "#1e293b", specific parts in distinct colors). Keep a small, tasteful palette.`);
-  if (selectionContext.length > 0) {
-    lines.push(``);
-    lines.push(`USER-SELECTED ITEMS (the user circled these on the board and asked to use them as context for this request. The request below refers to them — reference these labels and treat them as the focus of the answer; you may redraw them enlarged as the centerpiece of your fresh sheet):`);
-    for (const label of selectionContext) {
-      lines.push(`- ${label}`);
-    }
-  }
-  lines.push(``);
-  lines.push(`Request from the user: ${prompt}`);
 
-lines.push(``);
-  lines.push(`Return ONLY valid JSON of this exact shape:`);
-  lines.push(`{"description": "short summary", "commands": [COMMAND, ...]}`);
+  lines.push(`You are the semantic planning layer of an AI whiteboard.`);
+  lines.push(`Your job is to understand WHAT the user wants to learn or visualize and describe the semantic structure of the diagram.`);
+  lines.push(`The whiteboard application is responsible for deciding WHERE and HOW BIG everything is.`);
   lines.push(``);
-  lines.push(`COMMAND is one of:`);
-  lines.push(`- {"type":"stroke","points":[{"x":..,"y":..}, ...],"width":4,"color":"#1e293b"}  (freehand polyline; width marker size 1-20)`);
-  lines.push(`- {"type":"text","x":..,"y":..,"text":"label","fontSize":22,"color":"#1e293b"}`);
-  lines.push(`- {"type":"line","x1":..,"y1":..,"x2":..,"y2":..,"strokeWidth":4,"color":"#1e293b"}`);
-  lines.push(`- {"type":"rect","x":..,"y":..,"width":..,"height":..,"strokeWidth":4,"color":"#1e293b","fill":"#e2e8f0"}  (x,y top-left; "fill" optional)`);
-  lines.push(`- {"type":"ellipse","cx":..,"cy":..,"rx":..,"ry":..,"strokeWidth":4,"color":"#1e293b","fill":"#e2e8f0"}  (rx==ry for a circle; "fill" optional)`);
-  lines.push(`- {"type":"triangle","x1":..,"y1":..,"x2":..,"y2":..,"x3":..,"y3":..,"strokeWidth":4,"color":"#1e293b"}`);
-  lines.push(`- {"type":"arrow","x1":..,"y1":..,"x2":..,"y2":..,"strokeWidth":4,"color":"#1e293b"}  (tail to tip)`);
-  lines.push(`- {"type":"darrow","x1":..,"y1":..,"x2":..,"y2":..,"strokeWidth":4,"color":"#1e293b"}  (a double-headed arrow, heads at both ends)`);
-  lines.push(`- {"type":"erase","x":..,"y":..,"width":24}`);
-  lines.push(`- {"type":"pause","duration":400}`);
-  lines.push(`- {"type":"group","commands":[more commands]}`);
+  lines.push(`The application will automatically handle text measurement, text wrapping, node sizing, node positioning, spacing, collision avoidance, viewport fitting, connector routing, and layout validation.`);
   lines.push(``);
-  lines.push(`NARRATION: Every command may also include an optional "explain" field — a short spoken sentence (1 sentence, under ~140 characters) narrated aloud by a voice-over while that step draws. Write it like a teacher explaining at a whiteboard: warm, encouraging, present tense, and focused on WHY each step matters, with transitions that connect the lesson (e.g. "Now that we have the body, let's add the wheels", "See how the roof slopes down? That gives the car its shape"). Keep it conversational and easy to read aloud — never read the JSON back. Examples: {"type":"rect","x":100,"y":100,"width":200,"height":150,"explain":"Now I draw the main box; this is where everything connects"} or "I'm drawing the body of the car", "Here's the front window, right behind the hood", "Now I point to the middle of the list". Add "explain" to most steps so the narration flows while the drawing plays.`);
+  lines.push(`NEVER output pixel coordinates, dimensions, drawing commands, SVG, HTML, canvas instructions, or manually routed connector paths.`);
+  lines.push(`NEVER output x, y, x1, y1, x2, y2, width, height, cx, cy, rx, ry, points, fontSize, strokeWidth, or any other geometry.`);
+  lines.push(`Do not estimate how large a box should be. The application measures the content and sizes the box automatically.`);
   lines.push(``);
-  lines.push(`Use the precise shapes (rect, ellipse, line, triangle, arrow, darrow) for boxes, circles, borders, connectors and flow-arrows; use freehand "stroke" for curves and organic details.`);
+  lines.push(`Return ONLY one valid JSON object. Do not use markdown fences. Do not add commentary before or after the JSON.`);
   lines.push(``);
-  lines.push(`Plan logically, draw large-to-small, use multiple strokes, and pause between major steps. Respond with ONLY the JSON object.`);
+  lines.push(`JSON SHAPE:`);
+  lines.push(`{"description":"short summary of the diagram","direction":"top-to-bottom","nodes":[...],"edges":[...],"groups":[...]}`);
+  lines.push(``);
+  lines.push(`direction must be exactly one of: "top-to-bottom", "left-to-right", or "freeform". Prefer top-to-bottom for explanations and flows, and left-to-right for pipelines or sequences.`);
+  lines.push(``);
+  lines.push(`NODE SHAPE:`);
+  lines.push(`{"id":"unique-id","type":"card","title":"Short title","description":"Useful explanation","items":["Important point 1","Important point 2"]}`);
+  lines.push(`Use concise titles. Put explanatory detail in description and items instead of making titles long.`);
+  lines.push(`Each node must have a stable unique semantic id. For an existing concept that is being expanded, preserve its existing semantic id when that id is provided in the context.`);
+  lines.push(``);
+  lines.push(`EDGE SHAPE:`);
+  lines.push(`{"id":"unique-edge-id","source":"source-node-id","target":"target-node-id","label":"optional relationship"}`);
+  lines.push(`Edges describe relationships only. The application decides where and how the connector is drawn.`);
+  lines.push(``);
+  lines.push(`GROUP SHAPE:`);
+  lines.push(`{"id":"unique-group-id","title":"Group title","children":["node-id-1","node-id-2"]}`);
+  lines.push(`Use groups when several nodes clearly belong to the same conceptual area. Groups are optional.`);
+  lines.push(``);
+  lines.push(`CONTENT RULES:`);
+  lines.push(`1. Focus on teaching the requested concept clearly.`);
+  lines.push(`2. Prefer a coherent structure over many tiny nodes.`);
+  lines.push(`3. Create nodes for meaningful concepts, components, steps, or entities.`);
+  lines.push(`4. Use edges to express data flow, dependency, sequence, communication, or other relationships.`);
+  lines.push(`5. Keep titles short enough to work well as card headings.`);
+  lines.push(`6. Use descriptions and items when the user asks for an explanation or more detail.`);
+  lines.push(`7. Do not duplicate concepts just to place them somewhere else.`);
+  lines.push(`8. If the user asks to explain, expand, or add detail to an existing item, modify or enrich that semantic node rather than inventing coordinates.`);
+  lines.push(`9. If the user asks to explain something "in the same place", interpret that as keeping the same semantic node/id. Do not output a position.`);
+  lines.push(`10. If the request needs a new related concept, create a new semantic node and connect it with an edge.`);
+  lines.push(`11. Do not include geometry or renderer-specific properties even if the user asks for them.`);
+  lines.push(``);
+
+  if (selectionContext.length > 0) {
+    lines.push(`EXISTING USER-SELECTED CONTEXT:`);
+    for (const label of selectionContext) lines.push(`- ${label}`);
+    lines.push(`Treat these selected items as the focus of the request. Preserve their semantic identity when possible.`);
+    lines.push(``);
+  }
+
+  lines.push(`USER REQUEST:`);
+  lines.push(prompt);
+  lines.push(``);
+  lines.push(`Return ONLY the JSON object now.`);
+
   return lines.join("\n");
 }
