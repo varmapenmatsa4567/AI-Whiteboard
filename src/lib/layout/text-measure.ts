@@ -1,14 +1,15 @@
 export interface TextStyle { fontFamily?: string; fontSize: number; fontWeight?: string | number; lineHeight?: number }
 export interface TextMeasure { width: number; height: number; lines: number }
-const CHAR_WIDTH_FACTOR = 0.52;
+const CHAR_WIDTH_FACTOR = 0.62;
 const DEFAULT_LINE_HEIGHT = 1.25;
+const RENDERER_FONT = '"Chalkboard SE", "Segoe Print", "Comic Sans MS", "Marker Felt", cursive, sans-serif';
 
 export function measureText(text: string, style: TextStyle, maxWidth = Infinity): TextMeasure {
   const value = text.trim(); const fontSize = Math.max(6, style.fontSize); const lineHeight = style.lineHeight ?? DEFAULT_LINE_HEIGHT;
   if (!value) return { width: 0, height: fontSize * lineHeight, lines: 1 };
   if (typeof document !== "undefined") {
     const canvas = document.createElement("canvas"); const ctx = canvas.getContext("2d");
-    if (ctx) { ctx.font = `${style.fontWeight ?? 400} ${fontSize}px ${style.fontFamily ?? "Arial, sans-serif"}`; return measureWithCanvas(ctx, value, fontSize * lineHeight, maxWidth); }
+    if (ctx) { ctx.font = `${style.fontWeight ?? 400} ${fontSize}px ${style.fontFamily ?? RENDERER_FONT}`; return measureWithCanvas(ctx, value, fontSize * lineHeight, maxWidth); }
   }
   return approximateMeasure(value, fontSize, lineHeight, maxWidth);
 }
@@ -30,12 +31,10 @@ function approximateMeasure(text: string, fontSize: number, lineHeight: number, 
 }
 
 export interface CardSizeOptions { minWidth?: number; maxWidth?: number; minHeight?: number; maxHeight?: number; horizontalPadding?: number; verticalPadding?: number; gap?: number; titleStyle?: TextStyle; bodyStyle?: TextStyle }
-const DEFAULTS: Required<Pick<CardSizeOptions, "minWidth" | "maxWidth" | "minHeight" | "maxHeight" | "horizontalPadding" | "verticalPadding" | "gap">> = {
-  minWidth: 200, maxWidth: 420, minHeight: 82, maxHeight: 800, horizontalPadding: 24, verticalPadding: 20, gap: 10,
-};
+const DEFAULTS: Required<Pick<CardSizeOptions, "minWidth" | "maxWidth" | "minHeight" | "maxHeight" | "horizontalPadding" | "verticalPadding" | "gap">> = { minWidth: 200, maxWidth: 420, minHeight: 82, maxHeight: 800, horizontalPadding: 24, verticalPadding: 20, gap: 10 };
 
 export function measureCardSize(node: { title?: string; description?: string; items?: string[]; width?: number; height?: number }, options: CardSizeOptions = {}): { width: number; height: number } {
-  const o = { ...DEFAULTS, ...options }; const titleStyle = options.titleStyle ?? { fontSize: 20, fontWeight: 700 }; const bodyStyle = options.bodyStyle ?? { fontSize: 15, lineHeight: 1.35 };
+  const o = { ...DEFAULTS, ...options }; const titleStyle = options.titleStyle ?? { fontSize: 20, fontWeight: 700, fontFamily: RENDERER_FONT }; const bodyStyle = options.bodyStyle ?? { fontSize: 15, lineHeight: 1.35, fontFamily: RENDERER_FONT };
   const content = [node.title, node.description, ...(node.items ?? [])].filter((v): v is string => Boolean(v?.trim()));
   const preferred = Math.max(o.minWidth, Math.min(o.maxWidth, node.width ?? 280)); const inner = Math.max(40, preferred - o.horizontalPadding * 2);
   let height = o.verticalPadding * 2; let width = 0; let hasContent = false;
