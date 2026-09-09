@@ -1,6 +1,7 @@
 import type { SemanticDiagram, LayoutEdge, LayoutResult, LaidOutNode } from "./model";
 import { boundsOf, inflateRect, orthogonalRoute, pointsCrossRect, rectsOverlap, type Rect } from "./geometry";
 import { measureCardSize } from "./text-measure";
+import { displayNodeContent } from "./display-content";
 
 const NODE_GAP = 40;
 const LAYER_GAP = 70;
@@ -18,12 +19,13 @@ export function layoutDiagram(diagram: SemanticDiagram, options: LayoutOptions =
   const groupRank = buildGroupRank(diagram);
 
   const nodes = diagram.nodes.map((node) => {
-    const size = measureCardSize(node, {
-      minWidth: 220,
-      maxWidth: 380,
-      maxHeight: 520,
-      titleStyle: { fontSize: 22, fontWeight: 700 },
-      bodyStyle: { fontSize: 16, lineHeight: 1.3 },
+    const content = displayNodeContent(node, diagram.nodes.length);
+    const size = measureCardSize(content, {
+      minWidth: diagram.nodes.length > 14 ? 220 : 240,
+      maxWidth: diagram.nodes.length > 14 ? 360 : 420,
+      maxHeight: diagram.nodes.length > 14 ? 340 : 520,
+      titleStyle: { fontSize: diagram.nodes.length > 14 ? 20 : 22, fontWeight: 700 },
+      bodyStyle: { fontSize: diagram.nodes.length > 14 ? 14 : 16, lineHeight: 1.3 },
     });
     return { ...node, rect: { x: 0, y: 0, width: size.width, height: size.height } } as LaidOutNode;
   });
@@ -31,20 +33,18 @@ export function layoutDiagram(diagram: SemanticDiagram, options: LayoutOptions =
   const depth = assignDepths(diagram);
   const layers = new Map<number, LaidOutNode[]>();
   for (const node of nodes) {
-    const layer = layers.get(depth.get(node.id) ?? 0) ?? [];
+    const d = depth.get(node.id) ?? 0;
+    const layer = layers.get(d) ?? [];
     layer.push(node);
-    layers.set(depth.get(node.id) ?? 0, layer);
+    layers.set(d, layer);
   }
   for (const layer of layers.values()) {
     layer.sort((a, b) => ((groupRank.get(a.id) ?? 9999) - (groupRank.get(b.id) ?? 9999)) || a.id.localeCompare(b.id));
   }
 
   const orderedLayers = [...layers.keys()].sort((a, b) => a - b);
-  if (diagram.direction === "left-to-right") {
-    layoutLeftToRight(layers, orderedLayers, originX, originY, maxColumns);
-  } else {
-    layoutTopToBottom(layers, orderedLayers, originX, originY, maxColumns);
-  }
+  if (diagram.direction === "left-to-right") layoutLeftToRight(layers, orderedLayers, originX, originY, maxColumns);
+  else layoutTopToBottom(layers, orderedLayers, originX, originY, maxColumns);
   relaxCollisions(nodes);
 
   const edges: LayoutEdge[] = diagram.edges.flatMap((edge) => {
@@ -77,9 +77,7 @@ function layoutTopToBottom(layers: Map<number, LaidOutNode[]>, ordered: number[]
     const layerWidth = Math.max(...widths, 0);
     for (let i = 0; i < rows.length; i++) {
       let x = ox + (layerWidth - widths[i]) / 2;
-      for (const node of rows[i]) {
-        node.rect.x = x; node.rect.y = y; x += node.rect.width + NODE_GAP;
-      }
+      for (const node of rows[i]) { node.rect.x = x; node.rect.y = y; x += node.rect.width + NODE_GAP; }
       y += heights[i] + NODE_GAP;
     }
     y += LAYER_GAP - NODE_GAP;
@@ -95,9 +93,7 @@ function layoutLeftToRight(layers: Map<number, LaidOutNode[]>, ordered: number[]
     const layerHeight = Math.max(...heights, 0);
     for (let i = 0; i < columns.length; i++) {
       let y = oy + (layerHeight - heights[i]) / 2;
-      for (const node of columns[i]) {
-        node.rect.x = x; node.rect.y = y; y += node.rect.height + NODE_GAP;
-      }
+      for (const node of columns[i]) { node.rect.x = x; node.rect.y = y; y += node.rect.height + NODE_GAP; }
       x += widths[i] + NODE_GAP;
     }
     x += LAYER_GAP - NODE_GAP;
@@ -127,7 +123,6 @@ function assignDepths(diagram: SemanticDiagram): Map<string, number> {
     outgoing.get(edge.source)!.push(edge.target);
   }
   for (const ids of outgoing.values()) ids.sort();
-
   const queue = diagram.nodes.filter((n) => (incoming.get(n.id) ?? 0) === 0).map((n) => n.id).sort();
   const processed = new Set<string>();
   while (processed.size < diagram.nodes.length) {
@@ -154,9 +149,7 @@ function assignDepths(diagram: SemanticDiagram): Map<string, number> {
 }
 
 function maxDepth(depth: Map<string, number>): number {
-  let max = 0;
-  for (const d of depth.values()) max = Math.max(max, d);
-  return max;
+  let max = 0; for (const d of depth.values()) max = Math.max(max, d); return max;
 }
 
 function relaxCollisions(nodes: LaidOutNode[]): void {
@@ -202,10 +195,8 @@ function routeAroundObstacles(source: Rect, target: Rect, obstacles: Rect[]): { 
     candidates.push([sc, { x: sc.x, y: r.y - ROUTE_CLEARANCE }, { x: tc.x, y: r.y - ROUTE_CLEARANCE }, tc]);
     candidates.push([sc, { x: sc.x, y: r.y + r.height + ROUTE_CLEARANCE }, { x: tc.x, y: r.y + r.height + ROUTE_CLEARANCE }, tc]);
   }
-  let best = direct;
-  let bestLength = Number.POSITIVE_INFINITY;
+  let best = direct, bestLength = Number.POSITIVE_INFINITY;
   for (const points of candidates) {
-    if (points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) continue;
     if (obstacles.some((o) => pointsCrossRect(points, o, ROUTE_PADDING))) continue;
     const length = pathLength(points);
     if (length < bestLength) { best = points; bestLength = length; }
@@ -221,7 +212,5 @@ function centerBoundary(rect: Rect, other: Rect): { x: number; y: number } {
 }
 
 function pathLength(points: { x: number; y: number }[]): number {
-  let total = 0;
-  for (let i = 1; i < points.length; i++) total += Math.abs(points[i].x - points[i - 1].x) + Math.abs(points[i].y - points[i - 1].y);
-  return total;
+  let total = 0; for (let i = 1; i < points.length; i++) total += Math.abs(points[i].x - points[i - 1].x) + Math.abs(points[i].y - points[i - 1].y); return total;
 }
