@@ -1,6 +1,7 @@
-import type { DrawingAI } from "@/types/drawing";
+import type { DrawingAI, DrawingPlan, DrawingRequestContext } from "@/types/drawing";
 import { MockDrawingAI } from "./mock-drawing-ai";
 import { RealDrawingAI } from "./real-drawing-ai";
+import { stabilizeLegacyPlan } from "../layout/legacy-plan-layout";
 
 export type ProviderId = "auto" | "mock" | "openai";
 
@@ -10,18 +11,19 @@ function resolvedProvider(): ProviderId {
   return "auto";
 }
 
-/**
- * Live resolution of the configured AI drawing planner.
- * - openai  → talks to any OpenAI-compatible endpoint (AI_API_KEY required)
- * - mock    → local template-based planner (no key needed)
- * - auto    → mock when no key, real provider otherwise
- */
+class LayoutAwareDrawingAI implements DrawingAI {
+  readonly id: string;
+  constructor(private readonly inner: DrawingAI) { this.id = inner.id; }
+  async generateDrawing(request: DrawingRequestContext): Promise<DrawingPlan> {
+    const plan = await this.inner.generateDrawing(request);
+    return stabilizeLegacyPlan(plan);
+  }
+}
+
 export function getDrawingAI(): DrawingAI {
   const provider = resolvedProvider();
-  if (provider === "mock") return new MockDrawingAI();
-  if (provider === "openai") return new RealDrawingAI();
-  if (process.env.AI_API_KEY) return new RealDrawingAI();
-  return new MockDrawingAI();
+  const ai = provider === "mock" ? new MockDrawingAI() : provider === "openai" ? new RealDrawingAI() : process.env.AI_API_KEY ? new RealDrawingAI() : new MockDrawingAI();
+  return new LayoutAwareDrawingAI(ai);
 }
 
 export function describeProvider(): { provider: string; mock: boolean } {
